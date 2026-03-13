@@ -1,0 +1,3 @@
+__pycache__/
+*.pyc
+.news_builder_gui.json
