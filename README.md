@@ -9,6 +9,8 @@ It:
 - creates a separate remote folder for each news item
 - generates an HTML fragment ready for CMS insertion
 - includes a simple desktop GUI on `tkinter`
+- renders local preview inside the GUI
+- supports reusable server profiles
 
 ## Files
 
@@ -31,6 +33,13 @@ GUI:
 ```bash
 python news_builder_gui.py
 ```
+
+GUI features:
+- editable text area with marker buttons
+- local rendered preview tab
+- full HTML page export
+- saved server profiles
+- saved last-used fields between launches
 
 CLI:
 
@@ -87,6 +96,8 @@ The GUI stores entered values, including password, in:
 ```text
 ~/.news_builder_gui.json
 ```
+
+Server profiles are stored in the same file.
 
 ## Example Path Mapping
 

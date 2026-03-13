@@ -41,6 +41,10 @@ class NewsBuilderParsingTests(unittest.TestCase):
         self.assertEqual(blocks[1].indices, (3,))
         self.assertEqual(blocks[2].text, "Tail.")
 
+    def test_normalize_text_content_cleans_word_spacing(self):
+        value = "Title\u00a0 \n\n\nBody\u200b   text"
+        self.assertEqual(news_builder.normalize_text_content(value), "Title \n\nBody text")
+
     def test_validate_paths_reports_missing_input(self):
         args = SimpleNamespace(
             input="/tmp/definitely-missing-news-builder-input.txt",
@@ -108,6 +112,16 @@ class NewsBuilderParsingTests(unittest.TestCase):
         with patch("news_builder.datetime") as mocked_datetime:
             mocked_datetime.now.return_value.strftime.return_value = "20260313-180000"
             self.assertEqual(news_builder.build_news_folder_name("!!!"), "news-20260313-180000")
+
+    def test_derive_full_output_path(self):
+        output = Path("/tmp/news.html")
+        self.assertEqual(news_builder.derive_full_output_path(output), Path("/tmp/news_preview.html"))
+
+    def test_render_full_html_document_wraps_fragment(self):
+        document = news_builder.render_full_html_document("Title", "<div>Body</div>\n")
+        self.assertIn("<!DOCTYPE html>", document)
+        self.assertIn("<title>Title</title>", document)
+        self.assertIn("<div>Body</div>", document)
 
 
 if __name__ == "__main__":

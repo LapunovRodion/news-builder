@@ -149,6 +149,17 @@ class PreparedImage:
     public_url: str
 
 
+@dataclass(frozen=True)
+class BuildResult:
+    fragment_output_path: Path
+    full_output_path: Path | None
+    fragment_html: str
+    full_html: str | None
+    news_folder: str
+    remote_path: str
+    public_base_url: str
+
+
 LogFn = Callable[[str], None]
 
 
@@ -159,6 +170,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", required=True, help="Path to .docx, .txt, or .md input.")
     parser.add_argument("--images-dir", required=True, help="Directory with source images.")
     parser.add_argument("--output", required=True, help="Path to generated HTML fragment.")
+    parser.add_argument("--full-output", help="Optional path to a full standalone HTML preview page.")
     parser.add_argument("--title", help="Override auto-detected title.")
     parser.add_argument("--remote-host", required=True, help="SSH host.")
     parser.add_argument("--remote-user", required=True, help="SSH username.")
@@ -227,6 +239,27 @@ def read_input_document(path: Path) -> tuple[str | None, str]:
     raise ValueError(f"Unsupported input format: {path.suffix}")
 
 
+def normalize_text_content(value: str) -> str:
+    normalized = (
+        value.replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\u00a0", " ")
+        .replace("\u200b", "")
+        .replace("\ufeff", "")
+    )
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
+
+
+def normalize_title(value: str | None) -> str:
+    return normalize_text_content(value or "").replace("\n", " ").strip()
+
+
+def normalize_body(value: str) -> str:
+    return normalize_text_content(value)
+
+
 def extract_title_from_plain_text(raw: str, is_markdown: bool) -> tuple[str | None, str]:
     lines = raw.splitlines()
     title = None
@@ -249,7 +282,7 @@ def extract_title_from_plain_text(raw: str, is_markdown: bool) -> tuple[str | No
     body_lines = lines[:]
     body_lines.pop(title_index)
     body = "\n".join(body_lines).strip()
-    return title, body
+    return normalize_title(title), normalize_body(body)
 
 
 def read_docx_with_python_docx(path: Path) -> tuple[str | None, str]:
@@ -280,7 +313,7 @@ def read_docx_with_python_docx(path: Path) -> tuple[str | None, str]:
             continue
         body_lines.append(text)
 
-    return title, "\n".join(body_lines).strip()
+    return normalize_title(title), normalize_body("\n".join(body_lines).strip())
 
 
 def read_docx_with_stdlib(path: Path) -> tuple[str | None, str]:
@@ -300,7 +333,7 @@ def read_docx_with_stdlib(path: Path) -> tuple[str | None, str]:
 
     title = next((line for line in paragraphs if line), None)
     body = [line for idx, line in enumerate(paragraphs) if idx != 0]
-    return title, "\n".join(body).strip()
+    return normalize_title(title), normalize_body("\n".join(body).strip())
 
 
 def parse_blocks(body: str) -> list[ParagraphBlock | ImageLayoutBlock]:
@@ -393,6 +426,12 @@ def normalize_runtime_args(args: argparse.Namespace, title: str) -> tuple[str, s
     args.remote_path = remote_news_path
     args.public_base_url = public_news_base_url
     return news_folder, remote_news_path
+
+
+def derive_full_output_path(fragment_output_path: Path, explicit_path: str | None = None) -> Path:
+    if explicit_path:
+        return Path(explicit_path).expanduser().resolve()
+    return fragment_output_path.with_name(f"{fragment_output_path.stem}_preview.html")
 
 
 def ensure_markers_have_images(
@@ -699,6 +738,23 @@ def render_html(
     return "\n".join(lines) + "\n"
 
 
+def render_full_html_document(title: str, fragment_html: str) -> str:
+    escaped_title = html.escape(title, quote=False)
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="ru">\n'
+        "<head>\n"
+        '  <meta charset="utf-8" />\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1" />\n'
+        f"  <title>{escaped_title}</title>\n"
+        "</head>\n"
+        '  <body style="margin: 0; padding: 28px; background: #efe7da;">\n'
+        f"{fragment_html}"
+        "  </body>\n"
+        "</html>\n"
+    )
+
+
 def escape_text(value: str) -> str:
     return html.escape(value, quote=False)
 
@@ -745,21 +801,36 @@ def validate_paths(args: argparse.Namespace) -> tuple[Path, Path, Path, Path | N
     return input_path, images_dir, output_path, ssh_key_path
 
 
-def run_builder(args: argparse.Namespace, logger: LogFn | None = None) -> Path:
-    config = load_config(args.style_config)
-    input_path, images_dir, output_path, _ssh_key_path = validate_paths(args)
+def validate_runtime_auth(args: argparse.Namespace) -> None:
+    if not getattr(args, "ssh_key", None) and not getattr(args, "ssh_password", None):
+        raise ValueError("Provide either SSH key or SSH password.")
 
-    log_message(logger, f"Reading document: {input_path}")
-    detected_title, body = read_input_document(input_path)
-    title = (args.title or detected_title or "").strip()
+
+def build_with_content(
+    *,
+    args: argparse.Namespace,
+    title: str,
+    body: str,
+    images_dir: Path,
+    output_path: Path,
+    logger: LogFn | None = None,
+    upload: bool = True,
+    public_base_url_override: str | None = None,
+) -> BuildResult:
+    config = load_config(args.style_config)
+    title = normalize_title(title)
+    body = normalize_body(body)
     if not title:
         raise ValueError("Could not detect a title. Pass --title explicitly.")
 
     log_message(logger, f"Using title: {title}")
-    news_folder, remote_news_path = normalize_runtime_args(args, title)
+    args_copy = argparse.Namespace(**vars(args))
+    news_folder, remote_news_path = normalize_runtime_args(args_copy, title)
+    if public_base_url_override:
+        args_copy.public_base_url = public_base_url_override
     log_message(logger, f"News folder: {news_folder}")
     log_message(logger, f"Remote folder: {remote_news_path}")
-    log_message(logger, f"Public image URL base: {args.public_base_url}")
+    log_message(logger, f"Public image URL base: {args_copy.public_base_url}")
     blocks = parse_blocks(body)
     source_images = discover_images(images_dir)
     if not source_images:
@@ -775,15 +846,25 @@ def run_builder(args: argparse.Namespace, logger: LogFn | None = None) -> Path:
         prepared_images = prepare_images(
             source_images=source_images,
             title_slug=title_slug,
-            public_base_url=args.public_base_url,
+            public_base_url=args_copy.public_base_url,
             image_config=config["image"],
             work_dir=temp_dir,
             logger=logger,
         )
-        upload_images(prepared_images, args, logger)
+        if upload:
+            validate_runtime_auth(args_copy)
+            upload_images(prepared_images, args_copy, logger)
         log_message(logger, f"Rendering HTML fragment: {output_path}")
-        rendered_html = render_html(title, blocks, prepared_images, config["styles"])
-        write_output(output_path, rendered_html)
+        rendered_fragment = render_html(title, blocks, prepared_images, config["styles"])
+        write_output(output_path, rendered_fragment)
+        full_output_path = None
+        rendered_full_html = None
+        full_output_value = getattr(args_copy, "full_output", None)
+        if full_output_value:
+            full_output_path = derive_full_output_path(output_path, full_output_value)
+            rendered_full_html = render_full_html_document(title, rendered_fragment)
+            write_output(full_output_path, rendered_full_html)
+            log_message(logger, f"Full HTML page written to {full_output_path}")
 
         if args.keep_temp:
             preserved = output_path.parent / f"{output_path.stem}_processed_images"
@@ -794,7 +875,34 @@ def run_builder(args: argparse.Namespace, logger: LogFn | None = None) -> Path:
 
     print_warnings(source_images, used_indices, logger=logger)
     log_message(logger, f"HTML fragment written to {output_path}")
-    return output_path
+    return BuildResult(
+        fragment_output_path=output_path,
+        full_output_path=full_output_path,
+        fragment_html=rendered_fragment,
+        full_html=rendered_full_html,
+        news_folder=news_folder,
+        remote_path=remote_news_path,
+        public_base_url=args_copy.public_base_url,
+    )
+
+
+def run_builder(args: argparse.Namespace, logger: LogFn | None = None) -> BuildResult:
+    config = load_config(args.style_config)
+    _ = config  # keep config loading validation symmetric with build_with_content
+    input_path, images_dir, output_path, _ssh_key_path = validate_paths(args)
+
+    log_message(logger, f"Reading document: {input_path}")
+    detected_title, body = read_input_document(input_path)
+    title = normalize_title(args.title or detected_title or "")
+    return build_with_content(
+        args=args,
+        title=title,
+        body=body,
+        images_dir=images_dir,
+        output_path=output_path,
+        logger=logger,
+        upload=True,
+    )
 
 
 def main() -> int:
