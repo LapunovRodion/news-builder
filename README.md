@@ -40,6 +40,8 @@ GUI features:
 - editable text area with extended marker and text tools
 - linked photo browser with list, thumbnail grid, and large preview
 - used-image highlighting based on markers in the editor
+- separate focus window for larger text-and-photo editing
+- photo renaming from the GUI with stable index ordering
 - local rendered preview tab
 - full HTML page export
 - saved server profiles

@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 try:
     from PIL import Image, ImageOps, ImageTk  # type: ignore
@@ -56,6 +56,15 @@ class NewsBuilderApp:
         self.thumbnail_name_labels: dict[int, tk.Label] = {}
         self.thumbnail_index_labels: dict[int, tk.Label] = {}
         self.detail_photo_ref = None
+        self.workspace_window: tk.Toplevel | None = None
+        self.workspace_text: tk.Text | None = None
+        self.workspace_images_tree: ttk.Treeview | None = None
+        self.workspace_detail_preview_label: tk.Label | None = None
+        self.workspace_detail_caption_var = tk.StringVar(value="Выбери фото в правом списке.")
+        self.workspace_detail_usage_var = tk.StringVar(value="")
+        self.workspace_detail_photo_ref = None
+        self._syncing_main_editor = False
+        self._syncing_workspace_editor = False
         self._editor_analysis_job: str | None = None
 
         self.profile_var = tk.StringVar()
@@ -176,6 +185,7 @@ class NewsBuilderApp:
         ttk.Button(actions, text="Загрузить из файла", command=self._load_input_into_editor).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Открыть HTML", command=self._open_output).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Открыть папку", command=self._open_output_folder).pack(side="left", padx=(8, 0))
+        ttk.Button(actions, text="Фокус-режим", command=self._open_workspace_window).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Сохранить настройки", command=self._save_settings).pack(side="left", padx=(8, 0))
 
         notebook = ttk.Notebook(container)
@@ -329,6 +339,9 @@ class NewsBuilderApp:
         ttk.Button(image_bar, text="Вставить [right]", command=lambda: self._insert_selected_marker("image-right")).pack(
             side="left", padx=(8, 0)
         )
+        ttk.Button(image_bar, text="Переименовать фото", command=self._rename_selected_image).pack(
+            side="left", padx=(16, 0)
+        )
 
         paned = ttk.Panedwindow(self.images_tab, orient="horizontal")
         paned.grid(row=1, column=0, sticky="nsew")
@@ -420,6 +433,171 @@ class NewsBuilderApp:
         log_scroll = ttk.Scrollbar(self.log_tab, orient="vertical", command=self.log_text.yview)
         log_scroll.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=log_scroll.set)
+
+    def _open_workspace_window(self) -> None:
+        if self.workspace_window is not None and self.workspace_window.winfo_exists():
+            self.workspace_window.deiconify()
+            self.workspace_window.lift()
+            self.workspace_window.focus_force()
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("News Builder - Фокус-режим")
+        window.geometry("1500x980")
+        try:
+            window.state("zoomed")
+        except tk.TclError:
+            try:
+                window.attributes("-zoomed", True)
+            except tk.TclError:
+                pass
+        self.workspace_window = window
+        window.protocol("WM_DELETE_WINDOW", self._close_workspace_window)
+        window.columnconfigure(0, weight=1)
+        window.rowconfigure(1, weight=1)
+
+        top_bar = ttk.Frame(window, padding=12)
+        top_bar.grid(row=0, column=0, sticky="ew")
+        ttk.Button(top_bar, text="Обновить превью", command=self._refresh_preview).pack(side="left")
+        ttk.Button(top_bar, text="[image]", command=lambda: self._insert_marker("[image:1]")).pack(side="left", padx=(8, 0))
+        ttk.Button(top_bar, text="[images]", command=lambda: self._insert_marker("[images:1,2]")).pack(side="left", padx=(8, 0))
+        ttk.Button(top_bar, text="[left]", command=lambda: self._insert_marker("[image-left:1]")).pack(side="left", padx=(8, 0))
+        ttk.Button(top_bar, text="[right]", command=lambda: self._insert_marker("[image-right:1]")).pack(side="left", padx=(8, 0))
+        ttk.Button(top_bar, text="Переименовать фото", command=self._rename_selected_image).pack(side="left", padx=(8, 0))
+        ttk.Button(top_bar, text="Закрыть окно", command=self._close_workspace_window).pack(side="right")
+
+        paned = ttk.Panedwindow(window, orient="horizontal")
+        paned.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+
+        editor_panel = ttk.Frame(paned, padding=8)
+        photo_panel = ttk.Frame(paned, padding=8)
+        editor_panel.columnconfigure(0, weight=1)
+        editor_panel.rowconfigure(0, weight=1)
+        photo_panel.columnconfigure(0, weight=1)
+        photo_panel.rowconfigure(1, weight=1)
+        paned.add(editor_panel, weight=5)
+        paned.add(photo_panel, weight=3)
+
+        self.workspace_text = tk.Text(
+            editor_panel,
+            wrap="word",
+            undo=True,
+            font=("DejaVu Sans Mono", 13),
+            padx=18,
+            pady=18,
+            relief="solid",
+            borderwidth=1,
+        )
+        self.workspace_text.grid(row=0, column=0, sticky="nsew")
+        self.workspace_text.insert("1.0", self._editor_body())
+        self.workspace_text.bind("<KeyRelease>", self._on_workspace_editor_changed)
+        self.workspace_text.bind("<ButtonRelease-1>", self._on_workspace_editor_changed)
+        workspace_scroll = ttk.Scrollbar(editor_panel, orient="vertical", command=self.workspace_text.yview)
+        workspace_scroll.grid(row=0, column=1, sticky="ns")
+        self.workspace_text.configure(yscrollcommand=workspace_scroll.set)
+
+        workspace_photo_bar = ttk.Frame(photo_panel)
+        workspace_photo_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(workspace_photo_bar, text="Вставить [image]", command=lambda: self._insert_selected_marker("image")).pack(side="left")
+        ttk.Button(workspace_photo_bar, text="Вставить [images]", command=lambda: self._insert_selected_marker("images")).pack(side="left", padx=(8, 0))
+        ttk.Button(workspace_photo_bar, text="Вставить [left]", command=lambda: self._insert_selected_marker("image-left")).pack(side="left", padx=(8, 0))
+        ttk.Button(workspace_photo_bar, text="Вставить [right]", command=lambda: self._insert_selected_marker("image-right")).pack(side="left", padx=(8, 0))
+
+        workspace_photo_paned = ttk.Panedwindow(photo_panel, orient="vertical")
+        workspace_photo_paned.grid(row=1, column=0, sticky="nsew")
+
+        list_panel = ttk.Frame(workspace_photo_paned, padding=6)
+        preview_panel = ttk.Frame(workspace_photo_paned, padding=6)
+        list_panel.columnconfigure(0, weight=1)
+        list_panel.rowconfigure(0, weight=1)
+        preview_panel.columnconfigure(0, weight=1)
+        preview_panel.rowconfigure(1, weight=1)
+        workspace_photo_paned.add(list_panel, weight=3)
+        workspace_photo_paned.add(preview_panel, weight=2)
+
+        self.workspace_images_tree = ttk.Treeview(
+            list_panel,
+            columns=("index", "name"),
+            show="headings",
+            selectmode="extended",
+        )
+        self.workspace_images_tree.heading("index", text="#")
+        self.workspace_images_tree.heading("name", text="Файл")
+        self.workspace_images_tree.column("index", width=60, anchor="center")
+        self.workspace_images_tree.column("name", width=280, anchor="w")
+        self.workspace_images_tree.grid(row=0, column=0, sticky="nsew")
+        self.workspace_images_tree.tag_configure("used", background="#e6f4ea")
+        self.workspace_images_tree.bind("<<TreeviewSelect>>", self._on_workspace_tree_select)
+        workspace_tree_scroll = ttk.Scrollbar(list_panel, orient="vertical", command=self.workspace_images_tree.yview)
+        workspace_tree_scroll.grid(row=0, column=1, sticky="ns")
+        self.workspace_images_tree.configure(yscrollcommand=workspace_tree_scroll.set)
+
+        ttk.Label(preview_panel, text="Крупный preview", font=("TkDefaultFont", 11, "bold")).grid(
+            row=0, column=0, sticky="w"
+        )
+        self.workspace_detail_preview_label = tk.Label(
+            preview_panel,
+            text="Нет выбранного фото",
+            relief="solid",
+            borderwidth=1,
+            width=42,
+            height=14,
+            bg="#fbfaf7",
+            justify="center",
+        )
+        self.workspace_detail_preview_label.grid(row=1, column=0, sticky="nsew", pady=(8, 8))
+        ttk.Label(
+            preview_panel,
+            textvariable=self.workspace_detail_caption_var,
+            wraplength=360,
+            justify="left",
+        ).grid(row=2, column=0, sticky="ew")
+        ttk.Label(
+            preview_panel,
+            textvariable=self.workspace_detail_usage_var,
+            wraplength=360,
+            justify="left",
+        ).grid(row=3, column=0, sticky="ew", pady=(6, 0))
+
+        self._refresh_workspace_image_list()
+        if self.selected_image_indices:
+            self._set_selected_image_indices(self.selected_image_indices)
+
+    def _close_workspace_window(self) -> None:
+        if self.workspace_window is None:
+            return
+        if self.workspace_text is not None:
+            self._sync_editors_from_workspace()
+        try:
+            self.workspace_window.destroy()
+        finally:
+            self.workspace_window = None
+            self.workspace_text = None
+            self.workspace_images_tree = None
+            self.workspace_detail_preview_label = None
+            self.workspace_detail_photo_ref = None
+            self.workspace_detail_caption_var.set("Выбери фото в правом списке.")
+            self.workspace_detail_usage_var.set("")
+
+    def _refresh_workspace_image_list(self) -> None:
+        if self.workspace_images_tree is None:
+            return
+        for item_id in self.workspace_images_tree.get_children():
+            self.workspace_images_tree.delete(item_id)
+        for index, image_path in self.image_records:
+            self.workspace_images_tree.insert("", "end", iid=f"w-{index}", values=(index, image_path.name))
+
+    def _on_workspace_tree_select(self, _event=None) -> None:
+        if self.workspace_images_tree is None:
+            return
+        values: list[int] = []
+        for item_id in self.workspace_images_tree.selection():
+            item = self.workspace_images_tree.item(item_id)
+            index_value = item.get("values", [None])[0]
+            if index_value is not None:
+                values.append(int(index_value))
+        self.selected_image_indices = tuple(values)
+        self._set_selected_image_indices(self.selected_image_indices)
 
     def _add_entry_row(
         self,
@@ -514,6 +692,46 @@ class NewsBuilderApp:
             return
         self._schedule_editor_analysis()
 
+    def _set_main_editor_content(self, content: str) -> None:
+        if self._syncing_main_editor:
+            return
+        self._syncing_main_editor = True
+        try:
+            self.editor_text.delete("1.0", "end")
+            self.editor_text.insert("1.0", content)
+        finally:
+            self._syncing_main_editor = False
+
+    def _set_workspace_editor_content(self, content: str) -> None:
+        if self.workspace_text is None or self._syncing_workspace_editor:
+            return
+        self._syncing_workspace_editor = True
+        try:
+            self.workspace_text.delete("1.0", "end")
+            self.workspace_text.insert("1.0", content)
+        finally:
+            self._syncing_workspace_editor = False
+
+    def _sync_editors_from_main(self) -> None:
+        if self.workspace_text is None:
+            return
+        content = self._editor_body()
+        if self.workspace_text.get("1.0", "end-1c") != content:
+            self._set_workspace_editor_content(content)
+
+    def _sync_editors_from_workspace(self) -> None:
+        if self.workspace_text is None:
+            return
+        content = self.workspace_text.get("1.0", "end-1c")
+        if self._editor_body() != content:
+            self._set_main_editor_content(content)
+        self._schedule_editor_analysis()
+
+    def _on_workspace_editor_changed(self, _event=None) -> None:
+        if self.workspace_text is None or self._syncing_workspace_editor:
+            return
+        self._sync_editors_from_workspace()
+
     def _load_input_into_editor(self) -> None:
         path_value = self.input_var.get().strip()
         if not path_value:
@@ -531,25 +749,42 @@ class NewsBuilderApp:
 
         if title:
             self.title_var.set(title)
-        self.editor_text.delete("1.0", "end")
-        self.editor_text.insert("1.0", body)
+        self._set_main_editor_content(body)
+        self._set_workspace_editor_content(body)
         self._append_log(f"Loaded document into editor: {path}")
         self._schedule_editor_analysis()
 
     def _insert_marker(self, marker: str) -> None:
-        self.editor_text.insert("insert", f"\n\n{marker}\n\n")
-        self.editor_text.focus_set()
+        target = self._active_editor_widget()
+        target.insert("insert", f"\n\n{marker}\n\n")
+        target.focus_set()
+        if target is self.workspace_text:
+            self._sync_editors_from_workspace()
+        else:
+            self._sync_editors_from_main()
         self._schedule_editor_analysis()
 
     def _insert_blank_paragraph(self) -> None:
-        self.editor_text.insert("insert", "\n\n")
-        self.editor_text.focus_set()
+        target = self._active_editor_widget()
+        target.insert("insert", "\n\n")
+        target.focus_set()
+        if target is self.workspace_text:
+            self._sync_editors_from_workspace()
+        else:
+            self._sync_editors_from_main()
         self._schedule_editor_analysis()
+
+    def _active_editor_widget(self) -> tk.Text:
+        focus_widget = self.root.focus_get()
+        if self.workspace_window is not None and self.workspace_text is not None and focus_widget is not None:
+            if str(focus_widget).startswith(str(self.workspace_window)):
+                return self.workspace_text
+        return self.editor_text
 
     def _normalize_editor_text(self) -> None:
         normalized = news_builder.normalize_body(self._editor_body())
-        self.editor_text.delete("1.0", "end")
-        self.editor_text.insert("1.0", normalized)
+        self._set_main_editor_content(normalized)
+        self._set_workspace_editor_content(normalized)
         self._append_log("Normalized editor text.")
         self._schedule_editor_analysis()
 
@@ -561,13 +796,18 @@ class NewsBuilderApp:
             messagebox.showinfo("News Builder", "Сначала выдели текст в редакторе.")
             return
         self.editor_text.delete(start, end)
+        self._sync_editors_from_main()
         self._schedule_editor_analysis()
 
     def _clear_editor(self) -> None:
-        self.editor_text.delete("1.0", "end")
+        self._set_main_editor_content("")
+        self._set_workspace_editor_content("")
         self._schedule_editor_analysis()
 
     def _on_editor_changed(self, _event=None) -> None:
+        if self._syncing_main_editor:
+            return
+        self._sync_editors_from_main()
         self._schedule_editor_analysis()
 
     def _schedule_editor_analysis(self) -> None:
@@ -636,6 +876,7 @@ class NewsBuilderApp:
         self.thumbnail_index_labels.clear()
         self.detail_photo_ref = None
         self.selected_image_indices = tuple()
+        self._refresh_workspace_image_list()
 
         images_dir_value = self.images_dir_var.get().strip()
         if not images_dir_value:
@@ -658,6 +899,7 @@ class NewsBuilderApp:
             self._add_thumbnail_card(index, image_path)
 
         self._append_log(f"Indexed {len(images)} image(s) from {images_dir}")
+        self._refresh_workspace_image_list()
         self._update_image_highlights()
         if self.image_records:
             self._set_selected_image_indices((1,))
@@ -733,6 +975,12 @@ class NewsBuilderApp:
         if indices:
             self.images_tree.focus(str(indices[0]))
             self.images_tree.see(str(indices[0]))
+        if self.workspace_images_tree is not None:
+            workspace_ids = [f"w-{index}" for index in indices if f"w-{index}" in self.workspace_images_tree.get_children()]
+            self.workspace_images_tree.selection_set(workspace_ids)
+            if workspace_ids:
+                self.workspace_images_tree.focus(workspace_ids[0])
+                self.workspace_images_tree.see(workspace_ids[0])
         self._update_image_highlights()
         self._update_detail_preview(indices[0] if indices else None)
 
@@ -750,6 +998,14 @@ class NewsBuilderApp:
             if index in self.used_image_indices:
                 tags.append("used")
             self.images_tree.item(item_id, tags=tuple(tags))
+
+        if self.workspace_images_tree is not None:
+            for item_id in self.workspace_images_tree.get_children():
+                index = int(str(item_id).split("-", 1)[1])
+                tags: list[str] = []
+                if index in self.used_image_indices:
+                    tags.append("used")
+                self.workspace_images_tree.item(item_id, tags=tuple(tags))
 
         for index, card in self.thumbnail_cards.items():
             background, border = self._card_style_colors(index)
@@ -773,6 +1029,11 @@ class NewsBuilderApp:
             self.detail_usage_var.set("")
             self.detail_preview_label.configure(image="", text="Нет выбранного фото")
             self.detail_photo_ref = None
+            if self.workspace_detail_preview_label is not None:
+                self.workspace_detail_caption_var.set("Выбери фото в правом списке.")
+                self.workspace_detail_usage_var.set("")
+                self.workspace_detail_preview_label.configure(image="", text="Нет выбранного фото")
+                self.workspace_detail_photo_ref = None
             return
 
         path = next((path for current_index, path in self.image_records if current_index == index), None)
@@ -788,10 +1049,103 @@ class NewsBuilderApp:
             self.detail_photo_ref = None
 
         self.detail_caption_var.set(f"Фото #{index}: {path.name}")
-        if index in self.used_image_indices:
-            self.detail_usage_var.set("Статус: уже используется в тексте.")
-        else:
-            self.detail_usage_var.set("Статус: пока не используется в тексте.")
+        usage_text = "Статус: уже используется в тексте." if index in self.used_image_indices else "Статус: пока не используется в тексте."
+        self.detail_usage_var.set(usage_text)
+        if self.workspace_detail_preview_label is not None:
+            workspace_photo = self._create_thumbnail_photo(path, DETAIL_PREVIEW_SIZE)
+            if workspace_photo is not None:
+                self.workspace_detail_preview_label.configure(image=workspace_photo, text="")
+                self.workspace_detail_photo_ref = workspace_photo
+            else:
+                self.workspace_detail_preview_label.configure(image="", text=path.name)
+                self.workspace_detail_photo_ref = None
+            self.workspace_detail_caption_var.set(f"Фото #{index}: {path.name}")
+            self.workspace_detail_usage_var.set(usage_text)
+
+    def _rename_selected_image(self) -> None:
+        if len(self.selected_image_indices) != 1:
+            messagebox.showinfo("News Builder", "Для переименования выбери ровно одно фото.")
+            return
+        if not self.image_records:
+            messagebox.showinfo("News Builder", "Список фото пуст.")
+            return
+
+        selected_index = self.selected_image_indices[0]
+        selected_path = next((path for index, path in self.image_records if index == selected_index), None)
+        if selected_path is None:
+            messagebox.showerror("News Builder", "Не удалось найти выбранное фото.")
+            return
+
+        current_stem = self._display_stem(selected_path)
+        new_stem = simpledialog.askstring(
+            "Переименовать фото",
+            f"Новое имя для фото #{selected_index}:",
+            initialvalue=current_stem,
+            parent=self.workspace_window or self.root,
+        )
+        if new_stem is None:
+            return
+
+        sanitized_stem = self._sanitize_filename_stem(new_stem)
+        if not sanitized_stem:
+            messagebox.showerror("News Builder", "Имя файла не должно быть пустым.")
+            return
+
+        try:
+            self._renumber_and_rename_images(selected_index, sanitized_stem)
+        except Exception as exc:
+            messagebox.showerror("News Builder", str(exc))
+            return
+
+        self._refresh_image_index_list()
+        self._set_selected_image_indices((selected_index,))
+        self._append_log(f"Renamed photo #{selected_index} to {sanitized_stem}")
+
+    def _display_stem(self, path: Path) -> str:
+        stem = path.stem
+        return news_builder.re.sub(r"^\d+[-_\s]+", "", stem).strip() or stem
+
+    def _sanitize_filename_stem(self, value: str) -> str:
+        cleaned = "".join(char for char in value.strip() if char not in '\\/:*?"<>|')
+        cleaned = news_builder.re.sub(r"\s+", " ", cleaned).strip(" .")
+        return cleaned
+
+    def _renumber_and_rename_images(self, selected_index: int, selected_stem: str) -> None:
+        if not self.image_records:
+            return
+
+        digits = max(2, len(str(len(self.image_records))))
+        rename_plan: list[tuple[Path, Path]] = []
+        source_paths = {path for _index, path in self.image_records}
+        for index, path in self.image_records:
+            stem = selected_stem if index == selected_index else self._display_stem(path)
+            target_name = f"{index:0{digits}d}_{stem}{path.suffix.lower()}"
+            target_path = path.with_name(target_name)
+            rename_plan.append((path, target_path))
+
+        collisions = [target for source, target in rename_plan if target.exists() and target != source and target not in source_paths]
+        if collisions:
+            collision_names = ", ".join(path.name for path in collisions)
+            raise FileExistsError(f"Cannot rename images because target names already exist: {collision_names}")
+
+        temporary_paths: list[tuple[Path, Path]] = []
+        for source, _target in rename_plan:
+            temp_path = source.with_name(f".__rename_tmp__{source.name}")
+            counter = 1
+            while temp_path.exists():
+                temp_path = source.with_name(f".__rename_tmp__{counter}_{source.name}")
+                counter += 1
+            source.rename(temp_path)
+            temporary_paths.append((temp_path, source))
+
+        try:
+            for (temp_path, _original_path), (_source, target_path) in zip(temporary_paths, rename_plan):
+                temp_path.rename(target_path)
+        except Exception:
+            for temp_path, original_path in temporary_paths:
+                if temp_path.exists():
+                    temp_path.rename(original_path)
+            raise
 
     def _append_log(self, message: str) -> None:
         self.log_text.configure(state="normal")
@@ -1140,6 +1494,7 @@ class NewsBuilderApp:
 
     def _on_close(self) -> None:
         try:
+            self._close_workspace_window()
             self._save_settings(silent=True)
         finally:
             self.root.destroy()
