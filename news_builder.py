@@ -700,6 +700,8 @@ def render_html(
     prepared_images: list[PreparedImage],
     styles: dict,
 ) -> str:
+    container_style = build_container_style(styles["container"])
+
     def openable_image_tag(image: PreparedImage, alt: str, image_style: str, indent: str) -> list[str]:
         url = html.escape(image.public_url, quote=True)
         alt_text = html.escape(alt, quote=True)
@@ -709,7 +711,7 @@ def render_html(
             f"{indent}</a>",
         ]
 
-    lines = [f'<div style="{styles["container"]}">', f'  <h1 style="{styles["title"]}">{escape_text(title)}</h1>']
+    lines = [f'<div style="{container_style}">', f'  <h1 style="{styles["title"]}">{escape_text(title)}</h1>']
     active_float = False
     first_paragraph = True
     for block in blocks:
@@ -756,6 +758,16 @@ def render_html(
         lines.append(f'  <div style="{styles["clear"]}"></div>')
     lines.append("</div>")
     return "\n".join(lines) + "\n"
+
+
+def build_container_style(user_style: str) -> str:
+    base_style = "display: flow-root; width: 100%; box-sizing: border-box;"
+    cleaned = (user_style or "").strip()
+    if not cleaned:
+        return base_style
+    if not cleaned.endswith(";"):
+        cleaned += ";"
+    return f"{base_style} {cleaned}"
 
 
 def render_full_html_document(title: str, fragment_html: str) -> str:

@@ -161,6 +161,7 @@ class NewsBuilderParsingTests(unittest.TestCase):
         self.assertIn('href="https://example.com/one.jpg"', rendered)
         self.assertIn('href="https://example.com/two.jpg"', rendered)
         self.assertIn('target="_blank"', rendered)
+        self.assertIn('display: flow-root; width: 100%; box-sizing: border-box;', rendered)
 
 
 if __name__ == "__main__":
