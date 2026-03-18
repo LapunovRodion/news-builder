@@ -711,7 +711,12 @@ def render_html(
             f"{indent}</a>",
         ]
 
-    lines = [f'<div style="{container_style}">', f'  <h1 style="{styles["title"]}">{escape_text(title)}</h1>']
+    lines: list[str] = []
+    if container_style is not None:
+        lines.append(f'<div style="{container_style}">')
+        lines.append(f'  <h1 style="{styles["title"]}">{escape_text(title)}</h1>')
+    else:
+        lines.append(f'<h1 style="{styles["title"]}">{escape_text(title)}</h1>')
     active_float = False
     first_paragraph = True
     for block in blocks:
@@ -756,11 +761,14 @@ def render_html(
 
     if active_float:
         lines.append(f'  <div style="{styles["clear"]}"></div>')
-    lines.append("</div>")
+    if container_style is not None:
+        lines.append("</div>")
     return "\n".join(lines) + "\n"
 
 
-def build_container_style(user_style: str) -> str:
+def build_container_style(user_style: str) -> str | None:
+    if (user_style or "").strip() == "__omit__":
+        return None
     base_style = "display: flow-root; width: 100%; box-sizing: border-box;"
     cleaned = (user_style or "").strip()
     if not cleaned:

@@ -163,6 +163,14 @@ class NewsBuilderParsingTests(unittest.TestCase):
         self.assertIn('target="_blank"', rendered)
         self.assertIn('display: flow-root; width: 100%; box-sizing: border-box;', rendered)
 
+    def test_render_html_can_omit_outer_container(self):
+        blocks = news_builder.parse_blocks("Text.")
+        styles = dict(news_builder.DEFAULT_STYLES)
+        styles["container"] = "__omit__"
+        rendered = news_builder.render_html("Title", blocks, [], styles)
+        self.assertTrue(rendered.startswith('<h1 style="'))
+        self.assertNotIn('display: flow-root; width: 100%; box-sizing: border-box;', rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
