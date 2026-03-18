@@ -1,0 +1,24 @@
+{
+  "image": {
+    "max_width": 1600,
+    "max_bytes": 512000,
+    "jpeg_quality": 85,
+    "jpeg_min_quality": 50,
+    "webp_quality": 85,
+    "webp_min_quality": 50
+  },
+  "styles": {
+    "container": "",
+    "title": "",
+    "paragraph": "",
+    "lead": "",
+    "image_wrapper": "",
+    "image": "",
+    "row_wrapper": "",
+    "row_item": "",
+    "row_image": "",
+    "float_left": "",
+    "float_right": "",
+    "clear": ""
+  }
+}

@@ -18,6 +18,7 @@ It:
 - `news_builder_gui.py` - desktop GUI
 - `requirements-news-builder.txt` - Python dependencies
 - `news_builder_style.example.json` - style and image-processing overrides
+- `style-presets/` - ready-made style configs
 
 ## Install
 
@@ -132,3 +133,10 @@ python news_builder.py ... --style-config news_builder_style.example.json
 ```
 
 All generated HTML uses inline styles only.
+
+Ready-made presets:
+- `style-presets/no-style-default.json` - almost no styling, plain inline defaults
+- `style-presets/warm-editorial.json` - current warm editorial look
+- `style-presets/clean-modern.json` - clean neutral portal style
+- `style-presets/newspaper-classic.json` - classic newspaper look
+- `style-presets/contrast-magazine.json` - higher-contrast magazine look
