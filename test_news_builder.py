@@ -45,6 +45,17 @@ class NewsBuilderParsingTests(unittest.TestCase):
         value = "Title\u00a0 \n\n\nBody\u200b   text"
         self.assertEqual(news_builder.normalize_text_content(value), "Title \n\nBody text")
 
+    def test_build_body_from_paragraphs_preserves_docx_paragraph_breaks(self):
+        body = news_builder.build_body_from_paragraphs(
+            [
+                "Первый абзац",
+                "Второй абзац",
+                "",
+                "Третий абзац",
+            ]
+        )
+        self.assertEqual(body, "Первый абзац\n\nВторой абзац\n\nТретий абзац")
+
     def test_validate_paths_reports_missing_input(self):
         args = SimpleNamespace(
             input="/tmp/definitely-missing-news-builder-input.txt",

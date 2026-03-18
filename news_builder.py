@@ -260,6 +260,15 @@ def normalize_body(value: str) -> str:
     return normalize_text_content(value)
 
 
+def build_body_from_paragraphs(paragraphs: Iterable[str]) -> str:
+    normalized_paragraphs: list[str] = []
+    for paragraph in paragraphs:
+        cleaned = normalize_text_content(paragraph)
+        if cleaned:
+            normalized_paragraphs.append(cleaned)
+    return "\n\n".join(normalized_paragraphs)
+
+
 def extract_title_from_plain_text(raw: str, is_markdown: bool) -> tuple[str | None, str]:
     lines = raw.splitlines()
     title = None
@@ -313,7 +322,7 @@ def read_docx_with_python_docx(path: Path) -> tuple[str | None, str]:
             continue
         body_lines.append(text)
 
-    return normalize_title(title), normalize_body("\n".join(body_lines).strip())
+    return normalize_title(title), build_body_from_paragraphs(body_lines)
 
 
 def read_docx_with_stdlib(path: Path) -> tuple[str | None, str]:
@@ -333,7 +342,7 @@ def read_docx_with_stdlib(path: Path) -> tuple[str | None, str]:
 
     title = next((line for line in paragraphs if line), None)
     body = [line for idx, line in enumerate(paragraphs) if idx != 0]
-    return normalize_title(title), normalize_body("\n".join(body).strip())
+    return normalize_title(title), build_body_from_paragraphs(body)
 
 
 def parse_blocks(body: str) -> list[ParagraphBlock | ImageLayoutBlock]:
