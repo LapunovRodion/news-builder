@@ -60,6 +60,10 @@ class NewsBuilderParsingTests(unittest.TestCase):
         blocks = news_builder.parse_blocks("[images:1,2]\n\n[image-right:4]\n\n[image:3]")
         self.assertEqual(news_builder.collect_used_indices(blocks), {1, 2, 3, 4})
 
+    def test_extract_referenced_image_indices_tolerates_partial_text(self):
+        body = "One [image:1]\n\nBroken [images:2, 3]\n\nOther [image-left:5]"
+        self.assertEqual(news_builder.extract_referenced_image_indices(body), {1, 2, 3, 5})
+
     def test_validate_paths_accepts_password_without_key(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

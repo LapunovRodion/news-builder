@@ -353,6 +353,17 @@ def parse_blocks(body: str) -> list[ParagraphBlock | ImageLayoutBlock]:
     return blocks
 
 
+def extract_referenced_image_indices(body: str) -> set[int]:
+    indices: set[int] = set()
+    for match in MARKER_PATTERN.finditer(str(body or "")):
+        payload = match.group(2)
+        for part in payload.split(","):
+            part = part.strip()
+            if part.isdigit():
+                indices.add(int(part))
+    return indices
+
+
 def parse_paragraph_blocks(chunk: str) -> list[ParagraphBlock]:
     return [ParagraphBlock(text=paragraph) for paragraph in split_paragraphs(chunk) if paragraph]
 

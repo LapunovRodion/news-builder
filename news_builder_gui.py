@@ -18,6 +18,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 try:
+    from PIL import Image, ImageOps, ImageTk  # type: ignore
+except ImportError:
+    Image = None
+    ImageOps = None
+    ImageTk = None
+
+try:
     from tkhtmlview import HTMLScrolledText  # type: ignore
 except ImportError:
     HTMLScrolledText = None
@@ -26,19 +33,30 @@ import news_builder
 
 
 SETTINGS_PATH = Path.home() / ".news_builder_gui.json"
+THUMBNAIL_SIZE = (150, 110)
+DETAIL_PREVIEW_SIZE = (420, 320)
 
 
 class NewsBuilderApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("News Builder")
-        self.root.geometry("1200x920")
-        self.root.minsize(1040, 760)
+        self.root.geometry("1380x960")
+        self.root.minsize(1180, 820)
 
         self.message_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
         self.last_build_result: news_builder.BuildResult | None = None
         self.profiles: dict[str, dict[str, object]] = {}
+        self.image_records: list[tuple[int, Path]] = []
+        self.selected_image_indices: tuple[int, ...] = tuple()
+        self.used_image_indices: set[int] = set()
+        self.thumbnail_cards: dict[int, tk.Frame] = {}
+        self.thumbnail_photo_refs: dict[int, object] = {}
+        self.thumbnail_name_labels: dict[int, tk.Label] = {}
+        self.thumbnail_index_labels: dict[int, tk.Label] = {}
+        self.detail_photo_ref = None
+        self._editor_analysis_job: str | None = None
 
         self.profile_var = tk.StringVar()
         self.input_var = tk.StringVar()
@@ -57,13 +75,30 @@ class NewsBuilderApp:
         self.style_config_var = tk.StringVar()
         self.keep_temp_var = tk.BooleanVar(value=False)
         self.save_full_page_var = tk.BooleanVar(value=True)
+        self.editor_status_var = tk.StringVar(value="Редактор готов.")
+        self.used_images_var = tk.StringVar(value="Используемые фото: нет")
+        self.detail_caption_var = tk.StringVar(value="Выбери фото в списке или в сетке миниатюр.")
+        self.detail_usage_var = tk.StringVar(value="")
 
         self.preview_html = ""
 
         self._build_ui()
         self._load_settings()
+        self._maximize_window()
         self.root.after(100, self._poll_queue)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _maximize_window(self) -> None:
+        try:
+            self.root.state("zoomed")
+            return
+        except tk.TclError:
+            pass
+
+        try:
+            self.root.attributes("-zoomed", True)
+        except tk.TclError:
+            pass
 
     def _build_ui(self) -> None:
         container = ttk.Frame(self.root, padding=16)
@@ -75,7 +110,7 @@ class NewsBuilderApp:
             container,
             text=(
                 "Собирает HTML новости, загружает фото по SSH, умеет ряды, обтекание, "
-                "профили серверов и локальный предпросмотр."
+                "профили серверов, локальный preview и связанный браузер изображений."
             ),
         )
         intro.grid(row=0, column=0, sticky="w", pady=(0, 12))
@@ -84,11 +119,7 @@ class NewsBuilderApp:
         profile_row.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         profile_row.columnconfigure(0, weight=1)
 
-        self.profile_combo = ttk.Combobox(
-            profile_row,
-            textvariable=self.profile_var,
-            state="normal",
-        )
+        self.profile_combo = ttk.Combobox(profile_row, textvariable=self.profile_var, state="normal")
         self.profile_combo.grid(row=0, column=0, sticky="ew")
         ttk.Button(profile_row, text="Сохранить профиль", command=self._save_profile).grid(
             row=0, column=1, padx=(8, 0)
@@ -100,7 +131,7 @@ class NewsBuilderApp:
             row=0, column=3, padx=(8, 0)
         )
 
-        form = ttk.LabelFrame(container, text="Параметры", padding=12)
+        form = ttk.LabelFrame(container, text="Параметры публикации", padding=12)
         form.grid(row=2, column=0, sticky="ew")
         form.columnconfigure(1, weight=1)
 
@@ -150,45 +181,173 @@ class NewsBuilderApp:
         notebook = ttk.Notebook(container)
         notebook.grid(row=4, column=0, sticky="nsew")
 
-        editor_tab = ttk.Frame(notebook, padding=10)
-        images_tab = ttk.Frame(notebook, padding=10)
-        preview_tab = ttk.Frame(notebook, padding=10)
-        html_tab = ttk.Frame(notebook, padding=10)
-        log_tab = ttk.Frame(notebook, padding=10)
-        notebook.add(editor_tab, text="Редактор")
-        notebook.add(images_tab, text="Фото")
-        notebook.add(preview_tab, text="Превью")
-        notebook.add(html_tab, text="HTML")
-        notebook.add(log_tab, text="Лог")
+        self.editor_tab = ttk.Frame(notebook, padding=10)
+        self.images_tab = ttk.Frame(notebook, padding=10)
+        self.preview_tab = ttk.Frame(notebook, padding=10)
+        self.html_tab = ttk.Frame(notebook, padding=10)
+        self.log_tab = ttk.Frame(notebook, padding=10)
+        notebook.add(self.editor_tab, text="Редактор")
+        notebook.add(self.images_tab, text="Фото")
+        notebook.add(self.preview_tab, text="Превью")
+        notebook.add(self.html_tab, text="HTML")
+        notebook.add(self.log_tab, text="Лог")
 
-        editor_tab.columnconfigure(0, weight=1)
-        editor_tab.rowconfigure(1, weight=1)
-        marker_bar = ttk.Frame(editor_tab)
-        marker_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(marker_bar, text="[image]", command=lambda: self._insert_marker("[image:1]")).pack(side="left")
-        ttk.Button(marker_bar, text="[images]", command=lambda: self._insert_marker("[images:1,2]")).pack(side="left", padx=(8, 0))
-        ttk.Button(marker_bar, text="[left]", command=lambda: self._insert_marker("[image-left:1]")).pack(side="left", padx=(8, 0))
-        ttk.Button(marker_bar, text="[right]", command=lambda: self._insert_marker("[image-right:1]")).pack(side="left", padx=(8, 0))
-        ttk.Button(marker_bar, text="Очистить текст", command=self._clear_editor).pack(side="left", padx=(18, 0))
+        self._build_editor_tab()
+        self._build_images_tab()
+        self._build_preview_tab()
+        self._build_html_tab()
+        self._build_log_tab()
 
-        self.editor_text = tk.Text(editor_tab, wrap="word", undo=True)
+    def _build_editor_tab(self) -> None:
+        self.editor_tab.columnconfigure(0, weight=1)
+        self.editor_tab.rowconfigure(1, weight=1)
+
+        status_row = ttk.Frame(self.editor_tab)
+        status_row.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        status_row.columnconfigure(0, weight=1)
+        ttk.Label(status_row, textvariable=self.editor_status_var).grid(row=0, column=0, sticky="w")
+        ttk.Label(status_row, textvariable=self.used_images_var).grid(row=0, column=1, sticky="e")
+
+        paned = ttk.Panedwindow(self.editor_tab, orient="horizontal")
+        paned.grid(row=1, column=0, sticky="nsew")
+
+        editor_panel = ttk.Frame(paned, padding=8)
+        tools_panel = ttk.Frame(paned, padding=8)
+        editor_panel.columnconfigure(0, weight=1)
+        editor_panel.rowconfigure(1, weight=1)
+        tools_panel.columnconfigure(0, weight=1)
+        paned.add(editor_panel, weight=5)
+        paned.add(tools_panel, weight=2)
+
+        top_bar = ttk.Frame(editor_panel)
+        top_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(top_bar, text="Загрузить из файла", command=self._load_input_into_editor).pack(side="left")
+        ttk.Button(top_bar, text="Обновить превью", command=self._refresh_preview).pack(side="left", padx=(8, 0))
+        ttk.Button(top_bar, text="Undo", command=self._editor_undo).pack(side="left", padx=(16, 0))
+        ttk.Button(top_bar, text="Redo", command=self._editor_redo).pack(side="left", padx=(8, 0))
+
+        self.editor_text = tk.Text(
+            editor_panel,
+            wrap="word",
+            undo=True,
+            font=("DejaVu Sans Mono", 12),
+            padx=14,
+            pady=14,
+            relief="solid",
+            borderwidth=1,
+        )
         self.editor_text.grid(row=1, column=0, sticky="nsew")
-        editor_scroll = ttk.Scrollbar(editor_tab, orient="vertical", command=self.editor_text.yview)
+        self.editor_text.bind("<KeyRelease>", self._on_editor_changed)
+        self.editor_text.bind("<ButtonRelease-1>", self._on_editor_changed)
+        editor_scroll = ttk.Scrollbar(editor_panel, orient="vertical", command=self.editor_text.yview)
         editor_scroll.grid(row=1, column=1, sticky="ns")
         self.editor_text.configure(yscrollcommand=editor_scroll.set)
 
-        images_tab.columnconfigure(0, weight=1)
-        images_tab.rowconfigure(1, weight=1)
-        image_bar = ttk.Frame(images_tab)
+        marker_frame = ttk.LabelFrame(tools_panel, text="Маркеры", padding=10)
+        marker_frame.grid(row=0, column=0, sticky="ew")
+        marker_frame.columnconfigure(0, weight=1)
+        ttk.Button(marker_frame, text="Одиночное фото", command=lambda: self._insert_marker("[image:1]")).grid(
+            row=0, column=0, sticky="ew"
+        )
+        ttk.Button(marker_frame, text="2 фото в ряд", command=lambda: self._insert_marker("[images:1,2]")).grid(
+            row=1, column=0, sticky="ew", pady=(6, 0)
+        )
+        ttk.Button(marker_frame, text="3 фото в ряд", command=lambda: self._insert_marker("[images:1,2,3]")).grid(
+            row=2, column=0, sticky="ew", pady=(6, 0)
+        )
+        ttk.Button(marker_frame, text="4 фото в ряд", command=lambda: self._insert_marker("[images:1,2,3,4]")).grid(
+            row=3, column=0, sticky="ew", pady=(6, 0)
+        )
+        ttk.Button(marker_frame, text="Фото слева", command=lambda: self._insert_marker("[image-left:1]")).grid(
+            row=4, column=0, sticky="ew", pady=(6, 0)
+        )
+        ttk.Button(marker_frame, text="Фото справа", command=lambda: self._insert_marker("[image-right:1]")).grid(
+            row=5, column=0, sticky="ew", pady=(6, 0)
+        )
+
+        text_tools = ttk.LabelFrame(tools_panel, text="Текст", padding=10)
+        text_tools.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        text_tools.columnconfigure(0, weight=1)
+        ttk.Button(text_tools, text="Пустой абзац", command=self._insert_blank_paragraph).grid(
+            row=0, column=0, sticky="ew"
+        )
+        ttk.Button(text_tools, text="Нормализовать текст", command=self._normalize_editor_text).grid(
+            row=1, column=0, sticky="ew", pady=(6, 0)
+        )
+        ttk.Button(text_tools, text="Очистить выделение", command=self._clear_selection).grid(
+            row=2, column=0, sticky="ew", pady=(6, 0)
+        )
+        ttk.Button(text_tools, text="Очистить весь текст", command=self._clear_editor).grid(
+            row=3, column=0, sticky="ew", pady=(6, 0)
+        )
+
+        selection_tools = ttk.LabelFrame(tools_panel, text="По выбранным фото", padding=10)
+        selection_tools.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        selection_tools.columnconfigure(0, weight=1)
+        ttk.Button(selection_tools, text="Вставить [image]", command=lambda: self._insert_selected_marker("image")).grid(
+            row=0, column=0, sticky="ew"
+        )
+        ttk.Button(selection_tools, text="Вставить [images]", command=lambda: self._insert_selected_marker("images")).grid(
+            row=1, column=0, sticky="ew", pady=(6, 0)
+        )
+        ttk.Button(selection_tools, text="Вставить [left]", command=lambda: self._insert_selected_marker("image-left")).grid(
+            row=2, column=0, sticky="ew", pady=(6, 0)
+        )
+        ttk.Button(selection_tools, text="Вставить [right]", command=lambda: self._insert_selected_marker("image-right")).grid(
+            row=3, column=0, sticky="ew", pady=(6, 0)
+        )
+
+        help_frame = ttk.LabelFrame(tools_panel, text="Синтаксис", padding=10)
+        help_frame.grid(row=3, column=0, sticky="nsew", pady=(10, 0))
+        help_frame.columnconfigure(0, weight=1)
+        tools_panel.rowconfigure(3, weight=1)
+        help_text = (
+            "[image:1] - одно фото\n"
+            "[images:1,2] - ряд\n"
+            "[image-left:3] - обтекание слева\n"
+            "[image-right:4] - обтекание справа\n\n"
+            "Выдели фото во вкладке 'Фото' и вставляй маркеры кнопками справа."
+        )
+        ttk.Label(help_frame, text=help_text, justify="left").grid(row=0, column=0, sticky="nw")
+
+    def _build_images_tab(self) -> None:
+        self.images_tab.columnconfigure(0, weight=1)
+        self.images_tab.rowconfigure(1, weight=1)
+
+        image_bar = ttk.Frame(self.images_tab)
         image_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ttk.Button(image_bar, text="Обновить список", command=self._refresh_image_index_list).pack(side="left")
-        ttk.Button(image_bar, text="Вставить [image]", command=lambda: self._insert_selected_marker("image")).pack(side="left", padx=(8, 0))
-        ttk.Button(image_bar, text="Вставить [images]", command=lambda: self._insert_selected_marker("images")).pack(side="left", padx=(8, 0))
-        ttk.Button(image_bar, text="Вставить [left]", command=lambda: self._insert_selected_marker("image-left")).pack(side="left", padx=(8, 0))
-        ttk.Button(image_bar, text="Вставить [right]", command=lambda: self._insert_selected_marker("image-right")).pack(side="left", padx=(8, 0))
+        ttk.Button(image_bar, text="Вставить [image]", command=lambda: self._insert_selected_marker("image")).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(image_bar, text="Вставить [images]", command=lambda: self._insert_selected_marker("images")).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(image_bar, text="Вставить [left]", command=lambda: self._insert_selected_marker("image-left")).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(image_bar, text="Вставить [right]", command=lambda: self._insert_selected_marker("image-right")).pack(
+            side="left", padx=(8, 0)
+        )
+
+        paned = ttk.Panedwindow(self.images_tab, orient="horizontal")
+        paned.grid(row=1, column=0, sticky="nsew")
+
+        list_panel = ttk.Frame(paned, padding=8)
+        grid_panel = ttk.Frame(paned, padding=8)
+        detail_panel = ttk.Frame(paned, padding=8)
+        list_panel.columnconfigure(0, weight=1)
+        list_panel.rowconfigure(0, weight=1)
+        grid_panel.columnconfigure(0, weight=1)
+        grid_panel.rowconfigure(0, weight=1)
+        detail_panel.columnconfigure(0, weight=1)
+        detail_panel.rowconfigure(1, weight=1)
+        paned.add(list_panel, weight=2)
+        paned.add(grid_panel, weight=3)
+        paned.add(detail_panel, weight=2)
 
         self.images_tree = ttk.Treeview(
-            images_tab,
+            list_panel,
             columns=("index", "name"),
             show="headings",
             selectmode="extended",
@@ -196,33 +355,69 @@ class NewsBuilderApp:
         self.images_tree.heading("index", text="#")
         self.images_tree.heading("name", text="Файл")
         self.images_tree.column("index", width=60, anchor="center")
-        self.images_tree.column("name", width=700, anchor="w")
-        self.images_tree.grid(row=1, column=0, sticky="nsew")
-        images_scroll = ttk.Scrollbar(images_tab, orient="vertical", command=self.images_tree.yview)
-        images_scroll.grid(row=1, column=1, sticky="ns")
-        self.images_tree.configure(yscrollcommand=images_scroll.set)
+        self.images_tree.column("name", width=260, anchor="w")
+        self.images_tree.grid(row=0, column=0, sticky="nsew")
+        self.images_tree.tag_configure("used", background="#e6f4ea")
+        self.images_tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+        tree_scroll = ttk.Scrollbar(list_panel, orient="vertical", command=self.images_tree.yview)
+        tree_scroll.grid(row=0, column=1, sticky="ns")
+        self.images_tree.configure(yscrollcommand=tree_scroll.set)
 
-        preview_tab.columnconfigure(0, weight=1)
-        preview_tab.rowconfigure(0, weight=1)
+        self.thumbnail_canvas = tk.Canvas(grid_panel, highlightthickness=0, background="#f7f4ef")
+        self.thumbnail_canvas.grid(row=0, column=0, sticky="nsew")
+        grid_scroll = ttk.Scrollbar(grid_panel, orient="vertical", command=self.thumbnail_canvas.yview)
+        grid_scroll.grid(row=0, column=1, sticky="ns")
+        self.thumbnail_canvas.configure(yscrollcommand=grid_scroll.set)
+        self.thumbnail_inner = ttk.Frame(self.thumbnail_canvas)
+        self.thumbnail_window_id = self.thumbnail_canvas.create_window((0, 0), window=self.thumbnail_inner, anchor="nw")
+        self.thumbnail_inner.bind("<Configure>", self._on_thumbnail_inner_configure)
+        self.thumbnail_canvas.bind("<Configure>", self._on_thumbnail_canvas_configure)
+
+        ttk.Label(detail_panel, text="Предпросмотр фото", font=("TkDefaultFont", 11, "bold")).grid(
+            row=0, column=0, sticky="w"
+        )
+        self.detail_preview_label = tk.Label(
+            detail_panel,
+            text="Нет выбранного фото",
+            relief="solid",
+            borderwidth=1,
+            width=40,
+            height=18,
+            bg="#fbfaf7",
+            justify="center",
+        )
+        self.detail_preview_label.grid(row=1, column=0, sticky="nsew", pady=(8, 8))
+        ttk.Label(detail_panel, textvariable=self.detail_caption_var, wraplength=320, justify="left").grid(
+            row=2, column=0, sticky="ew"
+        )
+        ttk.Label(detail_panel, textvariable=self.detail_usage_var, wraplength=320, justify="left").grid(
+            row=3, column=0, sticky="ew", pady=(6, 0)
+        )
+
+    def _build_preview_tab(self) -> None:
+        self.preview_tab.columnconfigure(0, weight=1)
+        self.preview_tab.rowconfigure(0, weight=1)
         if HTMLScrolledText is not None:
-            self.preview_widget = HTMLScrolledText(preview_tab, html="", background="#f4ede2")
+            self.preview_widget = HTMLScrolledText(self.preview_tab, html="", background="#f4ede2")
         else:
-            self.preview_widget = tk.Text(preview_tab, wrap="word", state="disabled")
+            self.preview_widget = tk.Text(self.preview_tab, wrap="word", state="disabled")
         self.preview_widget.grid(row=0, column=0, sticky="nsew")
 
-        html_tab.columnconfigure(0, weight=1)
-        html_tab.rowconfigure(0, weight=1)
-        self.html_text = tk.Text(html_tab, wrap="word", state="disabled")
+    def _build_html_tab(self) -> None:
+        self.html_tab.columnconfigure(0, weight=1)
+        self.html_tab.rowconfigure(0, weight=1)
+        self.html_text = tk.Text(self.html_tab, wrap="word", state="disabled")
         self.html_text.grid(row=0, column=0, sticky="nsew")
-        html_scroll = ttk.Scrollbar(html_tab, orient="vertical", command=self.html_text.yview)
+        html_scroll = ttk.Scrollbar(self.html_tab, orient="vertical", command=self.html_text.yview)
         html_scroll.grid(row=0, column=1, sticky="ns")
         self.html_text.configure(yscrollcommand=html_scroll.set)
 
-        log_tab.columnconfigure(0, weight=1)
-        log_tab.rowconfigure(0, weight=1)
-        self.log_text = tk.Text(log_tab, wrap="word", state="disabled")
+    def _build_log_tab(self) -> None:
+        self.log_tab.columnconfigure(0, weight=1)
+        self.log_tab.rowconfigure(0, weight=1)
+        self.log_text = tk.Text(self.log_tab, wrap="word", state="disabled")
         self.log_text.grid(row=0, column=0, sticky="nsew")
-        log_scroll = ttk.Scrollbar(log_tab, orient="vertical", command=self.log_text.yview)
+        log_scroll = ttk.Scrollbar(self.log_tab, orient="vertical", command=self.log_text.yview)
         log_scroll.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
@@ -305,6 +500,20 @@ class NewsBuilderApp:
         if path:
             self.style_config_var.set(path)
 
+    def _editor_undo(self) -> None:
+        try:
+            self.editor_text.edit_undo()
+        except tk.TclError:
+            return
+        self._schedule_editor_analysis()
+
+    def _editor_redo(self) -> None:
+        try:
+            self.editor_text.edit_redo()
+        except tk.TclError:
+            return
+        self._schedule_editor_analysis()
+
     def _load_input_into_editor(self) -> None:
         path_value = self.input_var.get().strip()
         if not path_value:
@@ -325,10 +534,70 @@ class NewsBuilderApp:
         self.editor_text.delete("1.0", "end")
         self.editor_text.insert("1.0", body)
         self._append_log(f"Loaded document into editor: {path}")
+        self._schedule_editor_analysis()
 
     def _insert_marker(self, marker: str) -> None:
         self.editor_text.insert("insert", f"\n\n{marker}\n\n")
         self.editor_text.focus_set()
+        self._schedule_editor_analysis()
+
+    def _insert_blank_paragraph(self) -> None:
+        self.editor_text.insert("insert", "\n\n")
+        self.editor_text.focus_set()
+        self._schedule_editor_analysis()
+
+    def _normalize_editor_text(self) -> None:
+        normalized = news_builder.normalize_body(self._editor_body())
+        self.editor_text.delete("1.0", "end")
+        self.editor_text.insert("1.0", normalized)
+        self._append_log("Normalized editor text.")
+        self._schedule_editor_analysis()
+
+    def _clear_selection(self) -> None:
+        try:
+            start = self.editor_text.index("sel.first")
+            end = self.editor_text.index("sel.last")
+        except tk.TclError:
+            messagebox.showinfo("News Builder", "Сначала выдели текст в редакторе.")
+            return
+        self.editor_text.delete(start, end)
+        self._schedule_editor_analysis()
+
+    def _clear_editor(self) -> None:
+        self.editor_text.delete("1.0", "end")
+        self._schedule_editor_analysis()
+
+    def _on_editor_changed(self, _event=None) -> None:
+        self._schedule_editor_analysis()
+
+    def _schedule_editor_analysis(self) -> None:
+        if self._editor_analysis_job is not None:
+            self.root.after_cancel(self._editor_analysis_job)
+        self._editor_analysis_job = self.root.after(150, self._analyze_editor_content)
+
+    def _analyze_editor_content(self) -> None:
+        self._editor_analysis_job = None
+        body = self._editor_body()
+        self.used_image_indices = news_builder.extract_referenced_image_indices(body)
+        if not body:
+            self.editor_status_var.set("Редактор пустой.")
+            self.used_images_var.set("Используемые фото: нет")
+            self._update_image_highlights()
+            return
+
+        try:
+            news_builder.parse_blocks(body)
+        except Exception as exc:
+            self.editor_status_var.set(f"Ошибка маркеров: {exc}")
+        else:
+            self.editor_status_var.set("Редактор готов. Маркеры корректны.")
+
+        if self.used_image_indices:
+            used_summary = ", ".join(str(index) for index in sorted(self.used_image_indices))
+            self.used_images_var.set(f"Используемые фото: {used_summary}")
+        else:
+            self.used_images_var.set("Используемые фото: нет")
+        self._update_image_highlights()
 
     def _selected_image_indices(self) -> tuple[int, ...]:
         values: list[int] = []
@@ -342,7 +611,7 @@ class NewsBuilderApp:
     def _insert_selected_marker(self, marker_type: str) -> None:
         indices = self._selected_image_indices()
         if not indices:
-            messagebox.showinfo("News Builder", "Сначала выбери фото в списке.")
+            messagebox.showinfo("News Builder", "Сначала выбери фото в списке или в сетке.")
             return
 
         if marker_type == "image" and len(indices) != 1:
@@ -358,22 +627,171 @@ class NewsBuilderApp:
     def _refresh_image_index_list(self) -> None:
         for item_id in self.images_tree.get_children():
             self.images_tree.delete(item_id)
+        for widget in self.thumbnail_inner.winfo_children():
+            widget.destroy()
+        self.image_records = []
+        self.thumbnail_cards.clear()
+        self.thumbnail_photo_refs.clear()
+        self.thumbnail_name_labels.clear()
+        self.thumbnail_index_labels.clear()
+        self.detail_photo_ref = None
+        self.selected_image_indices = tuple()
 
         images_dir_value = self.images_dir_var.get().strip()
         if not images_dir_value:
+            self.detail_caption_var.set("Укажи папку с фото.")
+            self.detail_usage_var.set("")
+            self.detail_preview_label.configure(image="", text="Нет папки с фото")
             return
 
         images_dir = Path(images_dir_value).expanduser()
         if not images_dir.is_dir():
+            self.detail_caption_var.set("Папка с фото не найдена.")
+            self.detail_usage_var.set("")
+            self.detail_preview_label.configure(image="", text="Папка не найдена")
             return
 
         images = news_builder.discover_images(images_dir)
-        for index, image_path in enumerate(images, start=1):
-            self.images_tree.insert("", "end", values=(index, image_path.name))
-        self._append_log(f"Indexed {len(images)} image(s) from {images_dir}")
+        self.image_records = [(index, image_path) for index, image_path in enumerate(images, start=1)]
+        for index, image_path in self.image_records:
+            self.images_tree.insert("", "end", iid=str(index), values=(index, image_path.name))
+            self._add_thumbnail_card(index, image_path)
 
-    def _clear_editor(self) -> None:
-        self.editor_text.delete("1.0", "end")
+        self._append_log(f"Indexed {len(images)} image(s) from {images_dir}")
+        self._update_image_highlights()
+        if self.image_records:
+            self._set_selected_image_indices((1,))
+        else:
+            self.detail_caption_var.set("В папке нет поддерживаемых изображений.")
+            self.detail_usage_var.set("")
+            self.detail_preview_label.configure(image="", text="Нет изображений")
+
+    def _on_thumbnail_inner_configure(self, _event=None) -> None:
+        self.thumbnail_canvas.configure(scrollregion=self.thumbnail_canvas.bbox("all"))
+
+    def _on_thumbnail_canvas_configure(self, event) -> None:
+        self.thumbnail_canvas.itemconfigure(self.thumbnail_window_id, width=event.width)
+
+    def _create_thumbnail_photo(self, path: Path, size: tuple[int, int]):
+        if Image is None or ImageOps is None or ImageTk is None:
+            return None
+        try:
+            with Image.open(path) as raw_image:
+                image = ImageOps.exif_transpose(raw_image)
+                image.thumbnail(size)
+                return ImageTk.PhotoImage(image)
+        except Exception:
+            return None
+
+    def _add_thumbnail_card(self, index: int, image_path: Path) -> None:
+        row = (index - 1) // 3
+        column = (index - 1) % 3
+        card = tk.Frame(self.thumbnail_inner, bd=1, relief="solid", bg="#f7f4ef", padx=8, pady=8)
+        card.grid(row=row, column=column, sticky="nsew", padx=6, pady=6)
+        self.thumbnail_inner.grid_columnconfigure(column, weight=1)
+        self.thumbnail_cards[index] = card
+
+        index_label = tk.Label(card, text=f"#{index}", bg="#f7f4ef", font=("TkDefaultFont", 10, "bold"))
+        index_label.pack(anchor="w")
+        self.thumbnail_index_labels[index] = index_label
+
+        photo = self._create_thumbnail_photo(image_path, THUMBNAIL_SIZE)
+        image_label = tk.Label(card, bg="#f7f4ef")
+        if photo is not None:
+            image_label.configure(image=photo)
+            self.thumbnail_photo_refs[index] = photo
+        else:
+            image_label.configure(text=image_path.name[:18], width=20, height=6)
+        image_label.pack(fill="both", expand=True, pady=(6, 6))
+
+        name_label = tk.Label(
+            card,
+            text=image_path.name,
+            justify="left",
+            anchor="w",
+            wraplength=150,
+            bg="#f7f4ef",
+        )
+        name_label.pack(fill="x")
+        self.thumbnail_name_labels[index] = name_label
+
+        for widget in (card, index_label, image_label, name_label):
+            widget.bind("<Button-1>", lambda _event, idx=index: self._on_thumbnail_click(idx))
+
+    def _on_thumbnail_click(self, index: int) -> None:
+        self._set_selected_image_indices((index,))
+
+    def _on_tree_select(self, _event=None) -> None:
+        indices = self._selected_image_indices()
+        self.selected_image_indices = indices
+        self._update_image_highlights()
+        self._update_detail_preview(indices[0] if indices else None)
+
+    def _set_selected_image_indices(self, indices: tuple[int, ...]) -> None:
+        self.selected_image_indices = indices
+        self.images_tree.selection_set([str(index) for index in indices if str(index) in self.images_tree.get_children()])
+        if indices:
+            self.images_tree.focus(str(indices[0]))
+            self.images_tree.see(str(indices[0]))
+        self._update_image_highlights()
+        self._update_detail_preview(indices[0] if indices else None)
+
+    def _card_style_colors(self, index: int) -> tuple[str, str]:
+        if index in self.selected_image_indices:
+            return "#dbeafe", "#1d4ed8"
+        if index in self.used_image_indices:
+            return "#e8f5e9", "#2e7d32"
+        return "#f7f4ef", "#cfc7ba"
+
+    def _update_image_highlights(self) -> None:
+        for item_id in self.images_tree.get_children():
+            index = int(item_id)
+            tags: list[str] = []
+            if index in self.used_image_indices:
+                tags.append("used")
+            self.images_tree.item(item_id, tags=tuple(tags))
+
+        for index, card in self.thumbnail_cards.items():
+            background, border = self._card_style_colors(index)
+            card.configure(bg=background, highlightbackground=border, highlightcolor=border, highlightthickness=2)
+            for widget in (
+                self.thumbnail_index_labels.get(index),
+                self.thumbnail_name_labels.get(index),
+            ):
+                if widget is not None:
+                    widget.configure(bg=background)
+            for child in card.winfo_children():
+                if isinstance(child, tk.Label):
+                    child.configure(bg=background)
+
+        if self.selected_image_indices:
+            self._update_detail_preview(self.selected_image_indices[0])
+
+    def _update_detail_preview(self, index: int | None) -> None:
+        if index is None:
+            self.detail_caption_var.set("Выбери фото в списке или в сетке миниатюр.")
+            self.detail_usage_var.set("")
+            self.detail_preview_label.configure(image="", text="Нет выбранного фото")
+            self.detail_photo_ref = None
+            return
+
+        path = next((path for current_index, path in self.image_records if current_index == index), None)
+        if path is None:
+            return
+
+        photo = self._create_thumbnail_photo(path, DETAIL_PREVIEW_SIZE)
+        if photo is not None:
+            self.detail_preview_label.configure(image=photo, text="")
+            self.detail_photo_ref = photo
+        else:
+            self.detail_preview_label.configure(image="", text=path.name)
+            self.detail_photo_ref = None
+
+        self.detail_caption_var.set(f"Фото #{index}: {path.name}")
+        if index in self.used_image_indices:
+            self.detail_usage_var.set("Статус: уже используется в тексте.")
+        else:
+            self.detail_usage_var.set("Статус: пока не используется в тексте.")
 
     def _append_log(self, message: str) -> None:
         self.log_text.configure(state="normal")
@@ -615,7 +1033,10 @@ class NewsBuilderApp:
                 if payload.full_output_path:
                     self._append_log(f"Full page: {payload.full_output_path}")
                 self._set_html_source(payload.fragment_html)
-                self._set_preview_html(payload.full_html or news_builder.render_full_html_document(self.title_var.get(), payload.fragment_html))
+                self._set_preview_html(
+                    payload.full_html
+                    or news_builder.render_full_html_document(self.title_var.get(), payload.fragment_html)
+                )
                 self.run_button.configure(state="normal")
                 messagebox.showinfo(
                     "News Builder",
@@ -654,7 +1075,7 @@ class NewsBuilderApp:
         if os.name == "nt":
             os.startfile(str(directory))  # type: ignore[attr-defined]
             return
-        if sys.platform == "darwin":  # type: ignore[name-defined]
+        if sys.platform == "darwin":
             subprocess.Popen(["open", str(directory)])
             return
         subprocess.Popen(["xdg-open", str(directory)])
@@ -689,6 +1110,7 @@ class NewsBuilderApp:
         self.editor_text.delete("1.0", "end")
         self.editor_text.insert("1.0", data.get("editor_body", ""))
         self._refresh_image_index_list()
+        self._schedule_editor_analysis()
 
     def _save_settings(self, silent: bool = False) -> None:
         data = {

@@ -36,7 +36,10 @@ python news_builder_gui.py
 ```
 
 GUI features:
-- editable text area with marker buttons
+- maximized editor-first layout
+- editable text area with extended marker and text tools
+- linked photo browser with list, thumbnail grid, and large preview
+- used-image highlighting based on markers in the editor
 - local rendered preview tab
 - full HTML page export
 - saved server profiles
