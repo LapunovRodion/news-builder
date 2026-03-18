@@ -700,6 +700,15 @@ def render_html(
     prepared_images: list[PreparedImage],
     styles: dict,
 ) -> str:
+    def openable_image_tag(image: PreparedImage, alt: str, image_style: str, indent: str) -> list[str]:
+        url = html.escape(image.public_url, quote=True)
+        alt_text = html.escape(alt, quote=True)
+        return [
+            f'{indent}<a href="{url}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">',
+            f'{indent}  <img src="{url}" alt="{alt_text}" style="{image_style}" loading="lazy" />',
+            f"{indent}</a>",
+        ]
+
     lines = [f'<div style="{styles["container"]}">', f'  <h1 style="{styles["title"]}">{escape_text(title)}</h1>']
     active_float = False
     first_paragraph = True
@@ -718,10 +727,7 @@ def render_html(
             image = prepared_images[block.indices[0] - 1]
             alt = f"{title} - image {block.indices[0]}"
             lines.append(f'  <p style="{styles["image_wrapper"]}">')
-            lines.append(
-                f'    <img src="{html.escape(image.public_url, quote=True)}" '
-                f'alt="{html.escape(alt, quote=True)}" style="{styles["image"]}" loading="lazy" />'
-            )
+            lines.extend(openable_image_tag(image, alt, styles["image"], "    "))
             lines.append("  </p>")
             continue
 
@@ -731,10 +737,7 @@ def render_html(
                 image = prepared_images[index - 1]
                 alt = f"{title} - image {index}"
                 lines.append(f'    <div style="{styles["row_item"]}">')
-                lines.append(
-                    f'      <img src="{html.escape(image.public_url, quote=True)}" '
-                    f'alt="{html.escape(alt, quote=True)}" style="{styles["row_image"]}" loading="lazy" />'
-                )
+                lines.extend(openable_image_tag(image, alt, styles["row_image"], "      "))
                 lines.append("    </div>")
             lines.append("  </div>")
             continue
@@ -743,10 +746,7 @@ def render_html(
             image = prepared_images[block.indices[0] - 1]
             alt = f"{title} - image {block.indices[0]}"
             image_style = styles["float_left"] if block.layout == "image-left" else styles["float_right"]
-            lines.append(
-                f'  <img src="{html.escape(image.public_url, quote=True)}" '
-                f'alt="{html.escape(alt, quote=True)}" style="{image_style}" loading="lazy" />'
-            )
+            lines.extend(openable_image_tag(image, alt, image_style, "  "))
             active_float = True
             continue
 

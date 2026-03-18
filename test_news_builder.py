@@ -141,6 +141,27 @@ class NewsBuilderParsingTests(unittest.TestCase):
     def test_default_paragraph_style_has_first_line_indent(self):
         self.assertIn("text-indent: 1.8em", news_builder.DEFAULT_STYLES["paragraph"])
 
+    def test_render_html_wraps_images_with_links(self):
+        blocks = news_builder.parse_blocks("[image:1]\n\n[images:1,2]\n\n[image-right:2]")
+        prepared_images = [
+            news_builder.PreparedImage(
+                source_path=Path("/tmp/one.jpg"),
+                processed_path=Path("/tmp/one.jpg"),
+                remote_name="one.jpg",
+                public_url="https://example.com/one.jpg",
+            ),
+            news_builder.PreparedImage(
+                source_path=Path("/tmp/two.jpg"),
+                processed_path=Path("/tmp/two.jpg"),
+                remote_name="two.jpg",
+                public_url="https://example.com/two.jpg",
+            ),
+        ]
+        rendered = news_builder.render_html("Title", blocks, prepared_images, news_builder.DEFAULT_STYLES)
+        self.assertIn('href="https://example.com/one.jpg"', rendered)
+        self.assertIn('href="https://example.com/two.jpg"', rendered)
+        self.assertIn('target="_blank"', rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
