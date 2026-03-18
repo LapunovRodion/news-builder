@@ -151,10 +151,12 @@ class NewsBuilderApp:
         notebook.grid(row=4, column=0, sticky="nsew")
 
         editor_tab = ttk.Frame(notebook, padding=10)
+        images_tab = ttk.Frame(notebook, padding=10)
         preview_tab = ttk.Frame(notebook, padding=10)
         html_tab = ttk.Frame(notebook, padding=10)
         log_tab = ttk.Frame(notebook, padding=10)
         notebook.add(editor_tab, text="Редактор")
+        notebook.add(images_tab, text="Фото")
         notebook.add(preview_tab, text="Превью")
         notebook.add(html_tab, text="HTML")
         notebook.add(log_tab, text="Лог")
@@ -174,6 +176,31 @@ class NewsBuilderApp:
         editor_scroll = ttk.Scrollbar(editor_tab, orient="vertical", command=self.editor_text.yview)
         editor_scroll.grid(row=1, column=1, sticky="ns")
         self.editor_text.configure(yscrollcommand=editor_scroll.set)
+
+        images_tab.columnconfigure(0, weight=1)
+        images_tab.rowconfigure(1, weight=1)
+        image_bar = ttk.Frame(images_tab)
+        image_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(image_bar, text="Обновить список", command=self._refresh_image_index_list).pack(side="left")
+        ttk.Button(image_bar, text="Вставить [image]", command=lambda: self._insert_selected_marker("image")).pack(side="left", padx=(8, 0))
+        ttk.Button(image_bar, text="Вставить [images]", command=lambda: self._insert_selected_marker("images")).pack(side="left", padx=(8, 0))
+        ttk.Button(image_bar, text="Вставить [left]", command=lambda: self._insert_selected_marker("image-left")).pack(side="left", padx=(8, 0))
+        ttk.Button(image_bar, text="Вставить [right]", command=lambda: self._insert_selected_marker("image-right")).pack(side="left", padx=(8, 0))
+
+        self.images_tree = ttk.Treeview(
+            images_tab,
+            columns=("index", "name"),
+            show="headings",
+            selectmode="extended",
+        )
+        self.images_tree.heading("index", text="#")
+        self.images_tree.heading("name", text="Файл")
+        self.images_tree.column("index", width=60, anchor="center")
+        self.images_tree.column("name", width=700, anchor="w")
+        self.images_tree.grid(row=1, column=0, sticky="nsew")
+        images_scroll = ttk.Scrollbar(images_tab, orient="vertical", command=self.images_tree.yview)
+        images_scroll.grid(row=1, column=1, sticky="ns")
+        self.images_tree.configure(yscrollcommand=images_scroll.set)
 
         preview_tab.columnconfigure(0, weight=1)
         preview_tab.rowconfigure(0, weight=1)
@@ -243,6 +270,7 @@ class NewsBuilderApp:
         path = filedialog.askdirectory(title="Выбери папку с фотографиями")
         if path:
             self.images_dir_var.set(path)
+            self._refresh_image_index_list()
 
     def _choose_output_file(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -301,6 +329,48 @@ class NewsBuilderApp:
     def _insert_marker(self, marker: str) -> None:
         self.editor_text.insert("insert", f"\n\n{marker}\n\n")
         self.editor_text.focus_set()
+
+    def _selected_image_indices(self) -> tuple[int, ...]:
+        values: list[int] = []
+        for item_id in self.images_tree.selection():
+            item = self.images_tree.item(item_id)
+            index_value = item.get("values", [None])[0]
+            if index_value is not None:
+                values.append(int(index_value))
+        return tuple(values)
+
+    def _insert_selected_marker(self, marker_type: str) -> None:
+        indices = self._selected_image_indices()
+        if not indices:
+            messagebox.showinfo("News Builder", "Сначала выбери фото в списке.")
+            return
+
+        if marker_type == "image" and len(indices) != 1:
+            messagebox.showinfo("News Builder", "Для [image] выбери ровно одно фото.")
+            return
+        if marker_type in {"image-left", "image-right"} and len(indices) != 1:
+            messagebox.showinfo("News Builder", f"Для [{marker_type}] выбери ровно одно фото.")
+            return
+
+        payload = ",".join(str(index) for index in indices)
+        self._insert_marker(f"[{marker_type}:{payload}]")
+
+    def _refresh_image_index_list(self) -> None:
+        for item_id in self.images_tree.get_children():
+            self.images_tree.delete(item_id)
+
+        images_dir_value = self.images_dir_var.get().strip()
+        if not images_dir_value:
+            return
+
+        images_dir = Path(images_dir_value).expanduser()
+        if not images_dir.is_dir():
+            return
+
+        images = news_builder.discover_images(images_dir)
+        for index, image_path in enumerate(images, start=1):
+            self.images_tree.insert("", "end", values=(index, image_path.name))
+        self._append_log(f"Indexed {len(images)} image(s) from {images_dir}")
 
     def _clear_editor(self) -> None:
         self.editor_text.delete("1.0", "end")
@@ -618,6 +688,7 @@ class NewsBuilderApp:
         self.save_full_page_var.set(bool(data.get("save_full_page", True)))
         self.editor_text.delete("1.0", "end")
         self.editor_text.insert("1.0", data.get("editor_body", ""))
+        self._refresh_image_index_list()
 
     def _save_settings(self, silent: bool = False) -> None:
         data = {
