@@ -56,6 +56,8 @@ class NewsBuilderApp:
         self.thumbnail_name_labels: dict[int, tk.Label] = {}
         self.thumbnail_index_labels: dict[int, tk.Label] = {}
         self.detail_photo_ref = None
+        self.settings_window: tk.Toplevel | None = None
+        self.profile_combo: ttk.Combobox | None = None
         self.workspace_window: tk.Toplevel | None = None
         self.workspace_text: tk.Text | None = None
         self.workspace_images_tree: ttk.Treeview | None = None
@@ -86,6 +88,7 @@ class NewsBuilderApp:
         self.save_full_page_var = tk.BooleanVar(value=True)
         self.editor_status_var = tk.StringVar(value="Редактор готов.")
         self.used_images_var = tk.StringVar(value="Используемые фото: нет")
+        self.publication_summary_var = tk.StringVar(value="Параметры публикации не заполнены.")
         self.detail_caption_var = tk.StringVar(value="Выбери фото в списке или в сетке миниатюр.")
         self.detail_usage_var = tk.StringVar(value="")
 
@@ -94,6 +97,7 @@ class NewsBuilderApp:
         self._build_ui()
         self._load_settings()
         self._maximize_window()
+        self._init_variable_traces()
         self.root.after(100, self._poll_queue)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -113,7 +117,7 @@ class NewsBuilderApp:
         container = ttk.Frame(self.root, padding=16)
         container.pack(fill="both", expand=True)
         container.columnconfigure(0, weight=1)
-        container.rowconfigure(4, weight=1)
+        container.rowconfigure(3, weight=1)
 
         intro = ttk.Label(
             container,
@@ -124,72 +128,31 @@ class NewsBuilderApp:
         )
         intro.grid(row=0, column=0, sticky="w", pady=(0, 12))
 
-        profile_row = ttk.LabelFrame(container, text="Профили серверов", padding=10)
-        profile_row.grid(row=1, column=0, sticky="ew", pady=(0, 10))
-        profile_row.columnconfigure(0, weight=1)
-
-        self.profile_combo = ttk.Combobox(profile_row, textvariable=self.profile_var, state="normal")
-        self.profile_combo.grid(row=0, column=0, sticky="ew")
-        ttk.Button(profile_row, text="Сохранить профиль", command=self._save_profile).grid(
-            row=0, column=1, padx=(8, 0)
-        )
-        ttk.Button(profile_row, text="Загрузить профиль", command=self._load_selected_profile).grid(
-            row=0, column=2, padx=(8, 0)
-        )
-        ttk.Button(profile_row, text="Удалить профиль", command=self._delete_profile).grid(
-            row=0, column=3, padx=(8, 0)
-        )
-
-        form = ttk.LabelFrame(container, text="Параметры публикации", padding=12)
-        form.grid(row=2, column=0, sticky="ew")
-        form.columnconfigure(1, weight=1)
-
-        self._add_file_row(form, 0, "Файл текста", self.input_var, self._choose_input_file, optional=True)
-        self._add_file_row(form, 1, "Папка с фото", self.images_dir_var, self._choose_images_dir)
-        self._add_file_row(form, 2, "HTML fragment", self.output_var, self._choose_output_file)
-        self._add_file_row(form, 3, "Full HTML page", self.full_output_var, self._choose_full_output_file, optional=True)
-        self._add_entry_row(form, 4, "Заголовок", self.title_var)
-        self._add_entry_row(form, 5, "Папка новости", self.news_slug_var)
-        self._add_entry_row(form, 6, "SSH host", self.remote_host_var)
-        self._add_entry_row(form, 7, "SSH user", self.remote_user_var)
-        self._add_entry_row(form, 8, "Базовая удалённая папка", self.remote_path_var)
-        self._add_entry_row(form, 9, "SSH port", self.remote_port_var, width=12)
-        self._add_file_row(form, 10, "SSH key", self.ssh_key_var, self._choose_ssh_key, optional=True)
-        self._add_entry_row(form, 11, "SSH password", self.ssh_password_var, show="*")
-        self._add_entry_row(form, 12, "Public base URL", self.public_base_url_var)
-        self._add_file_row(form, 13, "Style config", self.style_config_var, self._choose_style_config, optional=True)
-
-        options_row = ttk.Frame(form)
-        options_row.grid(row=14, column=0, columnspan=3, sticky="w", pady=(10, 0))
-        ttk.Checkbutton(
-            options_row,
-            text="Сохранять обработанные картинки рядом с HTML",
-            variable=self.keep_temp_var,
-        ).pack(side="left")
-        ttk.Checkbutton(
-            options_row,
-            text="Сохранять full HTML page",
-            variable=self.save_full_page_var,
-        ).pack(side="left", padx=(18, 0))
+        summary = ttk.LabelFrame(container, text="Публикация", padding=10)
+        summary.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        summary.columnconfigure(0, weight=1)
         ttk.Label(
-            options_row,
-            text="Пароль сохраняется локально в ~/.news_builder_gui.json",
-        ).pack(side="left", padx=(18, 0))
+            summary,
+            textvariable=self.publication_summary_var,
+            justify="left",
+        ).grid(row=0, column=0, sticky="ew")
 
         actions = ttk.Frame(container)
-        actions.grid(row=3, column=0, sticky="ew", pady=(12, 10))
+        actions.grid(row=2, column=0, sticky="ew", pady=(0, 10))
 
         self.run_button = ttk.Button(actions, text="Собрать новость", command=self._start_build)
         self.run_button.pack(side="left")
+        ttk.Button(actions, text="Параметры публикации", command=self._open_settings_window).pack(
+            side="left", padx=(8, 0)
+        )
         ttk.Button(actions, text="Обновить превью", command=self._refresh_preview).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Загрузить из файла", command=self._load_input_into_editor).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Открыть HTML", command=self._open_output).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Открыть папку", command=self._open_output_folder).pack(side="left", padx=(8, 0))
-        ttk.Button(actions, text="Фокус-режим", command=self._open_workspace_window).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Сохранить настройки", command=self._save_settings).pack(side="left", padx=(8, 0))
 
         notebook = ttk.Notebook(container)
-        notebook.grid(row=4, column=0, sticky="nsew")
+        notebook.grid(row=3, column=0, sticky="nsew")
 
         self.editor_tab = ttk.Frame(notebook, padding=10)
         self.images_tab = ttk.Frame(notebook, padding=10)
@@ -433,6 +396,173 @@ class NewsBuilderApp:
         log_scroll = ttk.Scrollbar(self.log_tab, orient="vertical", command=self.log_text.yview)
         log_scroll.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=log_scroll.set)
+
+    def _init_variable_traces(self) -> None:
+        tracked_variables = (
+            self.profile_var,
+            self.input_var,
+            self.images_dir_var,
+            self.output_var,
+            self.full_output_var,
+            self.title_var,
+            self.news_slug_var,
+            self.remote_host_var,
+            self.remote_user_var,
+            self.remote_path_var,
+            self.remote_port_var,
+            self.ssh_key_var,
+            self.public_base_url_var,
+            self.style_config_var,
+            self.keep_temp_var,
+            self.save_full_page_var,
+        )
+        for variable in tracked_variables:
+            variable.trace_add("write", self._on_publication_field_changed)
+
+    def _on_publication_field_changed(self, *_args) -> None:
+        self._update_publication_summary()
+
+    def _update_publication_summary(self) -> None:
+        title = self.title_var.get().strip() or "без заголовка"
+        images_dir = self.images_dir_var.get().strip() or "папка с фото не указана"
+        remote_host = self.remote_host_var.get().strip() or "host не указан"
+        remote_path = self.remote_path_var.get().strip() or "удалённая папка не указана"
+        public_base_url = self.public_base_url_var.get().strip() or "public URL не указан"
+        output = self.output_var.get().strip() or "HTML fragment не указан"
+        profile = self.profile_var.get().strip() or "без профиля"
+        style_config = self.style_config_var.get().strip() or "встроенный стиль"
+        summary = (
+            f"Заголовок: {title} | Профиль: {profile} | Фото: {images_dir}\n"
+            f"Сервер: {remote_host} -> {remote_path}\n"
+            f"URL: {public_base_url}\n"
+            f"HTML: {output} | Стиль: {style_config}"
+        )
+        self.publication_summary_var.set(summary)
+
+    def _open_settings_window(self) -> None:
+        if self.settings_window is not None and self.settings_window.winfo_exists():
+            self.settings_window.deiconify()
+            self.settings_window.lift()
+            self.settings_window.focus_force()
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("Параметры публикации")
+        window.geometry("920x900")
+        window.minsize(760, 720)
+        window.transient(self.root)
+        self.settings_window = window
+        window.protocol("WM_DELETE_WINDOW", self._close_settings_window)
+        window.columnconfigure(0, weight=1)
+        window.rowconfigure(0, weight=1)
+
+        outer = ttk.Frame(window, padding=12)
+        outer.grid(row=0, column=0, sticky="nsew")
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=scroll.set)
+
+        content = ttk.Frame(canvas, padding=4)
+        content.columnconfigure(0, weight=1)
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def on_content_configure(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def on_canvas_configure(event) -> None:
+            canvas.itemconfigure(window_id, width=event.width)
+
+        content.bind("<Configure>", on_content_configure)
+        canvas.bind("<Configure>", on_canvas_configure)
+
+        profiles_frame = ttk.LabelFrame(content, text="Профили серверов", padding=12)
+        profiles_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        profiles_frame.columnconfigure(0, weight=1)
+        self.profile_combo = ttk.Combobox(profiles_frame, textvariable=self.profile_var, state="normal")
+        self.profile_combo.grid(row=0, column=0, sticky="ew")
+        ttk.Button(profiles_frame, text="Сохранить профиль", command=self._save_profile).grid(
+            row=0, column=1, padx=(8, 0)
+        )
+        ttk.Button(profiles_frame, text="Загрузить профиль", command=self._load_selected_profile).grid(
+            row=0, column=2, padx=(8, 0)
+        )
+        ttk.Button(profiles_frame, text="Удалить профиль", command=self._delete_profile).grid(
+            row=0, column=3, padx=(8, 0)
+        )
+        self._refresh_profile_combo()
+
+        files_frame = ttk.LabelFrame(content, text="Файлы и базовые поля", padding=12)
+        files_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        files_frame.columnconfigure(1, weight=1)
+        self._add_file_row(files_frame, 0, "Файл текста", self.input_var, self._choose_input_file, optional=True)
+        self._add_file_row(files_frame, 1, "Папка с фото", self.images_dir_var, self._choose_images_dir)
+        self._add_file_row(files_frame, 2, "HTML fragment", self.output_var, self._choose_output_file)
+        self._add_file_row(
+            files_frame,
+            3,
+            "Full HTML page",
+            self.full_output_var,
+            self._choose_full_output_file,
+            optional=True,
+        )
+        self._add_entry_row(files_frame, 4, "Заголовок", self.title_var)
+        self._add_entry_row(files_frame, 5, "Папка новости", self.news_slug_var)
+        self._add_file_row(
+            files_frame,
+            6,
+            "Style config",
+            self.style_config_var,
+            self._choose_style_config,
+            optional=True,
+        )
+
+        auth_frame = ttk.LabelFrame(content, text="SSH и публикация", padding=12)
+        auth_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        auth_frame.columnconfigure(1, weight=1)
+        self._add_entry_row(auth_frame, 0, "SSH host", self.remote_host_var)
+        self._add_entry_row(auth_frame, 1, "SSH user", self.remote_user_var)
+        self._add_entry_row(auth_frame, 2, "Базовая удалённая папка", self.remote_path_var)
+        self._add_entry_row(auth_frame, 3, "SSH port", self.remote_port_var, width=12)
+        self._add_file_row(auth_frame, 4, "SSH key", self.ssh_key_var, self._choose_ssh_key, optional=True)
+        self._add_entry_row(auth_frame, 5, "SSH password", self.ssh_password_var, show="*")
+        self._add_entry_row(auth_frame, 6, "Public base URL", self.public_base_url_var)
+
+        options_frame = ttk.LabelFrame(content, text="Опции", padding=12)
+        options_frame.grid(row=3, column=0, sticky="ew")
+        ttk.Checkbutton(
+            options_frame,
+            text="Сохранять обработанные картинки рядом с HTML",
+            variable=self.keep_temp_var,
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Checkbutton(
+            options_frame,
+            text="Сохранять full HTML page",
+            variable=self.save_full_page_var,
+        ).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(
+            options_frame,
+            text="Пароль хранится локально в ~/.news_builder_gui.json без шифрования.",
+            justify="left",
+        ).grid(row=2, column=0, sticky="w", pady=(8, 0))
+
+        footer = ttk.Frame(content)
+        footer.grid(row=4, column=0, sticky="ew", pady=(12, 0))
+        ttk.Button(footer, text="Сохранить настройки", command=self._save_settings).pack(side="left")
+        ttk.Button(footer, text="Закрыть", command=self._close_settings_window).pack(side="right")
+
+    def _close_settings_window(self) -> None:
+        if self.settings_window is None:
+            return
+        try:
+            self.settings_window.destroy()
+        finally:
+            self.settings_window = None
+            self.profile_combo = None
 
     def _open_workspace_window(self) -> None:
         if self.workspace_window is not None and self.workspace_window.winfo_exists():
@@ -1287,7 +1417,8 @@ class NewsBuilderApp:
         }
 
     def _refresh_profile_combo(self) -> None:
-        self.profile_combo["values"] = sorted(self.profiles.keys())
+        if self.profile_combo is not None:
+            self.profile_combo["values"] = sorted(self.profiles.keys())
 
     def _save_profile(self) -> None:
         profile_name = self.profile_var.get().strip()
@@ -1313,6 +1444,7 @@ class NewsBuilderApp:
         self.ssh_password_var.set(str(payload.get("ssh_password", "")))
         self.public_base_url_var.set(str(payload.get("public_base_url", "")))
         self.style_config_var.set(str(payload.get("style_config", "")))
+        self._update_publication_summary()
         self._append_log(f"Loaded profile: {profile_name}")
 
     def _delete_profile(self) -> None:
@@ -1436,6 +1568,7 @@ class NewsBuilderApp:
 
     def _load_settings(self) -> None:
         if not SETTINGS_PATH.exists():
+            self._update_publication_summary()
             return
         try:
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
@@ -1464,6 +1597,7 @@ class NewsBuilderApp:
         self.editor_text.delete("1.0", "end")
         self.editor_text.insert("1.0", data.get("editor_body", ""))
         self._refresh_image_index_list()
+        self._update_publication_summary()
         self._schedule_editor_analysis()
 
     def _save_settings(self, silent: bool = False) -> None:
@@ -1494,6 +1628,7 @@ class NewsBuilderApp:
 
     def _on_close(self) -> None:
         try:
+            self._close_settings_window()
             self._close_workspace_window()
             self._save_settings(silent=True)
         finally:
