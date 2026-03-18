@@ -10,8 +10,8 @@
   "styles": {
     "container": "max-width: 840px; margin: 0 auto; padding: 28px 32px; font-family: 'Times New Roman', Georgia, serif; color: #111111; line-height: 1.75; background: #fffef8; border: 1px solid #d6d0bf;",
     "title": "margin: 0 0 22px; font-size: 42px; line-height: 1.05; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: #111111;",
-    "paragraph": "margin: 0 0 14px; font-size: 19px; color: #171717;",
-    "lead": "margin: 0 0 18px; font-size: 21px; color: #202020; font-style: italic;",
+    "paragraph": "margin: 0 0 14px; font-size: 19px; color: #171717; text-indent: 1.8em;",
+    "lead": "margin: 0 0 18px; font-size: 21px; color: #202020; font-style: italic; text-indent: 0;",
     "image_wrapper": "margin: 22px 0;",
     "image": "display: block; width: 100%; height: auto; border: 1px solid #c7c0ac;",
     "row_wrapper": "margin: 24px 0; display: flex; gap: 10px; align-items: stretch;",

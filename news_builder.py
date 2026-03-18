@@ -91,8 +91,8 @@ DEFAULT_STYLES = {
         "margin: 0 0 26px; font-size: 40px; line-height: 1.12; font-weight: 700; "
         "letter-spacing: -0.03em; color: #24180d;"
     ),
-    "paragraph": "margin: 0 0 18px; font-size: 19px; color: #2c241c;",
-    "lead": "margin: 0 0 22px; font-size: 21px; color: #3f2f22; font-weight: 500;",
+    "paragraph": "margin: 0 0 18px; font-size: 19px; color: #2c241c; text-indent: 1.8em;",
+    "lead": "margin: 0 0 22px; font-size: 21px; color: #3f2f22; font-weight: 500; text-indent: 0;",
     "image_wrapper": "margin: 26px 0;",
     "image": (
         "display: block; width: 100%; height: auto; border-radius: 12px; "

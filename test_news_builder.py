@@ -138,6 +138,9 @@ class NewsBuilderParsingTests(unittest.TestCase):
         self.assertIn("<title>Title</title>", document)
         self.assertIn("<div>Body</div>", document)
 
+    def test_default_paragraph_style_has_first_line_indent(self):
+        self.assertIn("text-indent: 1.8em", news_builder.DEFAULT_STYLES["paragraph"])
+
 
 if __name__ == "__main__":
     unittest.main()
