@@ -1,0 +1,24 @@
+{
+  "image": {
+    "max_width": 1600,
+    "max_bytes": 512000,
+    "jpeg_quality": 85,
+    "jpeg_min_quality": 50,
+    "webp_quality": 85,
+    "webp_min_quality": 50
+  },
+  "styles": {
+    "container": "max-width: 1000px; margin: 0 auto; padding: 0; font-family: Arial, Helvetica, sans-serif; color: #111111; line-height: 1.6;",
+    "title": "margin: 0 0 18px; font-size: 34px; line-height: 1.25; font-weight: 700; color: #111111;",
+    "paragraph": "margin: 10px 0; line-height: 1.6; font-size: 16px; color: #111111; text-indent: 0;",
+    "lead": "margin: 10px 0; line-height: 1.6; font-size: 16px; color: #111111; text-indent: 0;",
+    "image_wrapper": "margin: 10px 0; line-height: 1.6;",
+    "image": "display: block; width: 100%; height: auto; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.12); margin: 8px auto;",
+    "row_wrapper": "margin: 10px 0; display: flex; gap: 12px; align-items: flex-start;",
+    "row_item": "flex: 1 1 0; min-width: 0;",
+    "row_image": "display: block; width: 100%; height: auto; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.12); margin: 8px auto;",
+    "float_left": "float: left; width: 42%; max-width: 360px; margin: 8px 18px 10px 0; display: block; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.12);",
+    "float_right": "float: right; width: 42%; max-width: 360px; margin: 8px 0 10px 18px; display: block; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.12);",
+    "clear": "clear: both; height: 0; overflow: hidden;"
+  }
+}

@@ -145,3 +145,4 @@ Ready-made presets:
 - `style-presets/clean-modern.json` - clean neutral portal style
 - `style-presets/newspaper-classic.json` - classic newspaper look
 - `style-presets/contrast-magazine.json` - higher-contrast magazine look
+- `style-presets/bsu-111-reference.json` - plain BGU-style layout close to the `111...txt` reference: simple paragraphs and soft image shadow
