@@ -35,7 +35,6 @@ import news_builder
 SETTINGS_PATH = Path.home() / ".news_builder_gui.json"
 THUMBNAIL_SIZE = (150, 110)
 DETAIL_PREVIEW_SIZE = (420, 320)
-THUMBNAIL_BATCH_SIZE = 8
 
 
 class NewsBuilderApp:
@@ -73,8 +72,6 @@ class NewsBuilderApp:
         self._syncing_main_editor = False
         self._syncing_workspace_editor = False
         self._editor_analysis_job: str | None = None
-        self._thumbnail_render_job: str | None = None
-        self._pending_thumbnail_records: list[tuple[int, Path]] = []
 
         self.profile_var = tk.StringVar()
         self.input_var = tk.StringVar()
@@ -1086,7 +1083,6 @@ class NewsBuilderApp:
         self._insert_marker(self._build_marker_text(marker_type, indices))
 
     def _refresh_image_index_list(self) -> None:
-        self._cancel_thumbnail_render()
         for item_id in self.images_tree.get_children():
             self.images_tree.delete(item_id)
         if self.editor_images_tree is not None:
@@ -1100,7 +1096,6 @@ class NewsBuilderApp:
         self.thumbnail_name_labels.clear()
         self.thumbnail_index_labels.clear()
         self.detail_photo_ref = None
-        self._pending_thumbnail_records = []
         self.selected_image_indices = tuple()
         self._refresh_workspace_image_list()
         self._refresh_editor_image_list()
@@ -1127,11 +1122,11 @@ class NewsBuilderApp:
         self.image_records = [(index, image_path) for index, image_path in enumerate(images, start=1)]
         for index, image_path in self.image_records:
             self.images_tree.insert("", "end", iid=str(index), values=(index, image_path.name))
+            self._add_thumbnail_card(index, image_path)
 
         self._append_log(f"Indexed {len(images)} image(s) from {images_dir}")
         self._refresh_workspace_image_list()
         self._refresh_editor_image_list()
-        self._start_thumbnail_render()
         self._update_image_highlights()
         if self.image_records:
             self._set_selected_image_indices((1,))
@@ -1141,35 +1136,6 @@ class NewsBuilderApp:
             self.detail_preview_label.configure(image="", text="Нет изображений")
             self._reset_editor_preview("Нет изображений")
         self._update_insert_preview()
-
-    def _cancel_thumbnail_render(self) -> None:
-        if self._thumbnail_render_job is not None:
-            try:
-                self.root.after_cancel(self._thumbnail_render_job)
-            except tk.TclError:
-                pass
-            self._thumbnail_render_job = None
-
-    def _start_thumbnail_render(self) -> None:
-        self._cancel_thumbnail_render()
-        self._pending_thumbnail_records = list(self.image_records)
-        if not self._pending_thumbnail_records:
-            return
-        self._thumbnail_render_job = self.root.after(10, self._render_thumbnail_batch)
-
-    def _render_thumbnail_batch(self) -> None:
-        self._thumbnail_render_job = None
-        if not self._pending_thumbnail_records:
-            return
-
-        batch = self._pending_thumbnail_records[:THUMBNAIL_BATCH_SIZE]
-        self._pending_thumbnail_records = self._pending_thumbnail_records[THUMBNAIL_BATCH_SIZE:]
-        for index, image_path in batch:
-            self._add_thumbnail_card(index, image_path)
-        self._update_image_highlights()
-
-        if self._pending_thumbnail_records:
-            self._thumbnail_render_job = self.root.after(10, self._render_thumbnail_batch)
 
     def _refresh_editor_image_list(self) -> None:
         if self.editor_images_tree is None:
@@ -1821,7 +1787,6 @@ class NewsBuilderApp:
 
     def _on_close(self) -> None:
         try:
-            self._cancel_thumbnail_render()
             self._close_settings_window()
             self._close_workspace_window()
             self._save_settings(silent=True)
