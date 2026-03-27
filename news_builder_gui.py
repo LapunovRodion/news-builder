@@ -68,6 +68,7 @@ class NewsBuilderApp:
         self.workspace_detail_caption_var = tk.StringVar(value="Выбери фото в правом списке.")
         self.workspace_detail_usage_var = tk.StringVar(value="")
         self.workspace_detail_photo_ref = None
+        self._syncing_image_selection = False
         self._syncing_main_editor = False
         self._syncing_workspace_editor = False
         self._editor_analysis_job: str | None = None
@@ -764,6 +765,8 @@ class NewsBuilderApp:
             self.workspace_images_tree.insert("", "end", iid=f"w-{index}", values=(index, image_path.name))
 
     def _on_workspace_tree_select(self, _event=None) -> None:
+        if self._syncing_image_selection:
+            return
         if self.workspace_images_tree is None:
             return
         values: list[int] = []
@@ -1143,6 +1146,8 @@ class NewsBuilderApp:
             self.editor_images_tree.insert("", "end", iid=f"e-{index}", values=(index, image_path.name))
 
     def _on_editor_tree_select(self, _event=None) -> None:
+        if self._syncing_image_selection:
+            return
         if self.editor_images_tree is None:
             return
         values: list[int] = []
@@ -1209,27 +1214,35 @@ class NewsBuilderApp:
         self._set_selected_image_indices((index,))
 
     def _on_tree_select(self, _event=None) -> None:
+        if self._syncing_image_selection:
+            return
         indices = self._selected_image_indices()
         self._set_selected_image_indices(indices)
 
     def _set_selected_image_indices(self, indices: tuple[int, ...]) -> None:
-        self.selected_image_indices = indices
-        self.images_tree.selection_set([str(index) for index in indices if str(index) in self.images_tree.get_children()])
-        if indices:
-            self.images_tree.focus(str(indices[0]))
-            self.images_tree.see(str(indices[0]))
-        if self.editor_images_tree is not None:
-            editor_ids = [f"e-{index}" for index in indices if f"e-{index}" in self.editor_images_tree.get_children()]
-            self.editor_images_tree.selection_set(editor_ids)
-            if editor_ids:
-                self.editor_images_tree.focus(editor_ids[0])
-                self.editor_images_tree.see(editor_ids[0])
-        if self.workspace_images_tree is not None:
-            workspace_ids = [f"w-{index}" for index in indices if f"w-{index}" in self.workspace_images_tree.get_children()]
-            self.workspace_images_tree.selection_set(workspace_ids)
-            if workspace_ids:
-                self.workspace_images_tree.focus(workspace_ids[0])
-                self.workspace_images_tree.see(workspace_ids[0])
+        if self._syncing_image_selection:
+            return
+        self._syncing_image_selection = True
+        try:
+            self.selected_image_indices = indices
+            self.images_tree.selection_set([str(index) for index in indices if str(index) in self.images_tree.get_children()])
+            if indices:
+                self.images_tree.focus(str(indices[0]))
+                self.images_tree.see(str(indices[0]))
+            if self.editor_images_tree is not None:
+                editor_ids = [f"e-{index}" for index in indices if f"e-{index}" in self.editor_images_tree.get_children()]
+                self.editor_images_tree.selection_set(editor_ids)
+                if editor_ids:
+                    self.editor_images_tree.focus(editor_ids[0])
+                    self.editor_images_tree.see(editor_ids[0])
+            if self.workspace_images_tree is not None:
+                workspace_ids = [f"w-{index}" for index in indices if f"w-{index}" in self.workspace_images_tree.get_children()]
+                self.workspace_images_tree.selection_set(workspace_ids)
+                if workspace_ids:
+                    self.workspace_images_tree.focus(workspace_ids[0])
+                    self.workspace_images_tree.see(workspace_ids[0])
+        finally:
+            self._syncing_image_selection = False
         self._update_image_highlights()
         self._update_detail_preview(indices[0] if indices else None)
         self._update_insert_preview()
