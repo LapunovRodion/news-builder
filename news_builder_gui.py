@@ -192,6 +192,7 @@ class NewsBuilderApp:
         editor_panel.columnconfigure(0, weight=1)
         editor_panel.rowconfigure(1, weight=1)
         tools_panel.columnconfigure(0, weight=1)
+        tools_panel.rowconfigure(0, weight=1)
         paned.add(editor_panel, weight=5)
         paned.add(tools_panel, weight=2)
 
@@ -219,83 +220,17 @@ class NewsBuilderApp:
         editor_scroll.grid(row=1, column=1, sticky="ns")
         self.editor_text.configure(yscrollcommand=editor_scroll.set)
 
-        marker_frame = ttk.LabelFrame(tools_panel, text="Маркеры", padding=10)
-        marker_frame.grid(row=0, column=0, sticky="ew")
-        marker_frame.columnconfigure(0, weight=1)
-        ttk.Button(marker_frame, text="Одиночное фото", command=lambda: self._insert_marker("[image:1]")).grid(
-            row=0, column=0, sticky="ew"
-        )
-        ttk.Button(marker_frame, text="2 фото в ряд", command=lambda: self._insert_marker("[images:1,2]")).grid(
-            row=1, column=0, sticky="ew", pady=(6, 0)
-        )
-        ttk.Button(marker_frame, text="3 фото в ряд", command=lambda: self._insert_marker("[images:1,2,3]")).grid(
-            row=2, column=0, sticky="ew", pady=(6, 0)
-        )
-        ttk.Button(marker_frame, text="4 фото в ряд", command=lambda: self._insert_marker("[images:1,2,3,4]")).grid(
-            row=3, column=0, sticky="ew", pady=(6, 0)
-        )
-        ttk.Button(marker_frame, text="Фото слева", command=lambda: self._insert_marker("[image-left:1]")).grid(
-            row=4, column=0, sticky="ew", pady=(6, 0)
-        )
-        ttk.Button(marker_frame, text="Фото справа", command=lambda: self._insert_marker("[image-right:1]")).grid(
-            row=5, column=0, sticky="ew", pady=(6, 0)
-        )
-
-        text_tools = ttk.LabelFrame(tools_panel, text="Текст", padding=10)
-        text_tools.grid(row=1, column=0, sticky="ew", pady=(10, 0))
-        text_tools.columnconfigure(0, weight=1)
-        ttk.Button(text_tools, text="Пустой абзац", command=self._insert_blank_paragraph).grid(
-            row=0, column=0, sticky="ew"
-        )
-        ttk.Button(text_tools, text="Нормализовать текст", command=self._normalize_editor_text).grid(
-            row=1, column=0, sticky="ew", pady=(6, 0)
-        )
-        ttk.Button(text_tools, text="Очистить выделение", command=self._clear_selection).grid(
-            row=2, column=0, sticky="ew", pady=(6, 0)
-        )
-        ttk.Button(text_tools, text="Очистить весь текст", command=self._clear_editor).grid(
-            row=3, column=0, sticky="ew", pady=(6, 0)
-        )
-
-        selection_tools = ttk.LabelFrame(tools_panel, text="По выбранным фото", padding=10)
-        selection_tools.grid(row=2, column=0, sticky="ew", pady=(10, 0))
-        selection_tools.columnconfigure(0, weight=1)
-        ttk.Button(selection_tools, text="Вставить [image]", command=lambda: self._insert_selected_marker("image")).grid(
-            row=0, column=0, sticky="ew"
-        )
-        ttk.Button(selection_tools, text="Вставить [images]", command=lambda: self._insert_selected_marker("images")).grid(
-            row=1, column=0, sticky="ew", pady=(6, 0)
-        )
-        ttk.Button(selection_tools, text="Вставить [left]", command=lambda: self._insert_selected_marker("image-left")).grid(
-            row=2, column=0, sticky="ew", pady=(6, 0)
-        )
-        ttk.Button(selection_tools, text="Вставить [right]", command=lambda: self._insert_selected_marker("image-right")).grid(
-            row=3, column=0, sticky="ew", pady=(6, 0)
-        )
-
-        help_frame = ttk.LabelFrame(tools_panel, text="Синтаксис", padding=10)
-        help_frame.grid(row=3, column=0, sticky="nsew", pady=(10, 0))
-        help_frame.columnconfigure(0, weight=1)
-        tools_panel.rowconfigure(4, weight=1)
-        help_text = (
-            "[image:1] - одно фото\n"
-            "[images:1,2] - ряд\n"
-            "[image-left:3] - обтекание слева\n"
-            "[image-right:4] - обтекание справа\n\n"
-            "Выдели фото во вкладке 'Фото' и вставляй маркеры кнопками справа."
-        )
-        ttk.Label(help_frame, text=help_text, justify="left").grid(row=0, column=0, sticky="nw")
-
         preview_frame = ttk.LabelFrame(tools_panel, text="Фото", padding=10)
-        preview_frame.grid(row=4, column=0, sticky="nsew", pady=(10, 0))
+        preview_frame.grid(row=0, column=0, sticky="nsew")
         preview_frame.columnconfigure(0, weight=1)
+        preview_frame.rowconfigure(0, weight=1)
         self.editor_preview_label = tk.Label(
             preview_frame,
             text="Нет выбранного фото",
             relief="solid",
             borderwidth=1,
-            width=24,
-            height=7,
+            width=30,
+            height=14,
             bg="#fbfaf7",
             justify="center",
         )
