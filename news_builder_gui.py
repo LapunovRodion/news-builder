@@ -226,14 +226,13 @@ class NewsBuilderApp:
         preview_frame = ttk.LabelFrame(tools_panel, text="Фото", padding=10)
         preview_frame.grid(row=0, column=0, sticky="nsew")
         preview_frame.columnconfigure(0, weight=1)
-        preview_frame.rowconfigure(2, weight=1)
+        preview_frame.rowconfigure(0, weight=3)
+        preview_frame.rowconfigure(4, weight=2)
         self.editor_preview_label = tk.Label(
             preview_frame,
             text="Нет выбранного фото",
             relief="solid",
             borderwidth=1,
-            width=30,
-            height=14,
             bg="#fbfaf7",
             justify="center",
         )
@@ -1281,7 +1280,7 @@ class NewsBuilderApp:
         path = next((path for current_index, path in self.image_records if current_index == index), None)
         if path is None:
             return
-        editor_photo = self._create_thumbnail_photo(path, (240, 180))
+        editor_photo = self._create_thumbnail_photo(path, (320, 240))
         if self.editor_preview_label is not None:
             if editor_photo is not None:
                 self.editor_preview_label.configure(image=editor_photo, text="")
