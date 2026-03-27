@@ -38,9 +38,8 @@ python news_builder_gui.py
 GUI features:
 - maximized editor-first layout
 - publication settings moved into a separate dialog from the main workspace
-- editable text area with compact photo insertion controls inside the editor
+- editable text area with extended marker and text tools
 - linked photo browser with list, thumbnail grid, and large preview
-- automatic next-image numbering based on the current editor content
 - used-image highlighting based on markers in the editor
 - photo renaming from the GUI with stable index ordering
 - local rendered preview tab

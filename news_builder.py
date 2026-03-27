@@ -373,20 +373,6 @@ def extract_referenced_image_indices(body: str) -> set[int]:
     return indices
 
 
-def next_free_image_indices(used_indices: set[int], total_images: int, count: int = 1) -> tuple[int, ...]:
-    if count < 1:
-        raise ValueError("count must be positive")
-    if total_images < count:
-        raise ValueError("Not enough images available.")
-
-    used = set(used_indices)
-    for start in range(1, total_images - count + 2):
-        candidate = tuple(range(start, start + count))
-        if all(index not in used for index in candidate):
-            return candidate
-    raise ValueError("No free image range available for this layout.")
-
-
 def parse_paragraph_blocks(chunk: str) -> list[ParagraphBlock]:
     return [ParagraphBlock(text=paragraph) for paragraph in split_paragraphs(chunk) if paragraph]
 
