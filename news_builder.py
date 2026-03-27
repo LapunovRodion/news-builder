@@ -100,9 +100,9 @@ DEFAULT_STYLES = {
         "box-shadow: 0 12px 28px rgba(53, 34, 16, 0.16);"
     ),
     "row_wrapper": "margin: 28px 0; display: flex; gap: 14px; align-items: stretch;",
-    "row_item": "flex: 1 1 0; min-width: 0;",
+    "row_item": "flex: 1 1 0; min-width: 0; aspect-ratio: 4 / 3; overflow: hidden; border-radius: 12px;",
     "row_image": (
-        "display: block; width: 100%; height: auto; border-radius: 12px; "
+        "display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; "
         "border: 1px solid rgba(91, 62, 33, 0.10); box-shadow: 0 10px 24px rgba(53, 34, 16, 0.14);"
     ),
     "float_left": (
@@ -757,8 +757,17 @@ def render_html(
             for index in block.indices:
                 image = prepared_images[index - 1]
                 alt = f"{title} - image {index}"
+                url = html.escape(image.public_url, quote=True)
+                alt_text = html.escape(alt, quote=True)
                 lines.append(f'    <div style="{styles["row_item"]}">')
-                lines.extend(openable_image_tag(image, alt, styles["row_image"], "      "))
+                lines.append(
+                    f'      <a href="{url}" target="_blank" rel="noopener noreferrer" '
+                    'style="display: block; width: 100%; height: 100%; text-decoration: none;">'
+                )
+                lines.append(
+                    f'        <img src="{url}" alt="{alt_text}" style="{styles["row_image"]}" loading="lazy" />'
+                )
+                lines.append("      </a>")
                 lines.append("    </div>")
             lines.append("  </div>")
             continue

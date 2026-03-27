@@ -166,6 +166,7 @@ class NewsBuilderParsingTests(unittest.TestCase):
         self.assertIn('href="https://example.com/two.jpg"', rendered)
         self.assertIn('target="_blank"', rendered)
         self.assertIn('display: flow-root; width: 100%; box-sizing: border-box;', rendered)
+        self.assertIn('object-fit: cover', rendered)
 
     def test_render_html_can_omit_outer_container(self):
         blocks = news_builder.parse_blocks("Text.")
