@@ -56,6 +56,8 @@ class NewsBuilderApp:
         self.thumbnail_name_labels: dict[int, tk.Label] = {}
         self.thumbnail_index_labels: dict[int, tk.Label] = {}
         self.detail_photo_ref = None
+        self.editor_preview_label: tk.Label | None = None
+        self.editor_preview_photo_ref = None
         self.settings_window: tk.Toplevel | None = None
         self.profile_combo: ttk.Combobox | None = None
         self.workspace_window: tk.Toplevel | None = None
@@ -89,6 +91,7 @@ class NewsBuilderApp:
         self.editor_status_var = tk.StringVar(value="Редактор готов.")
         self.used_images_var = tk.StringVar(value="Используемые фото: нет")
         self.publication_summary_var = tk.StringVar(value="Параметры публикации не заполнены.")
+        self.editor_preview_caption_var = tk.StringVar(value="Выбери фото во вкладке 'Фото'.")
         self.detail_caption_var = tk.StringVar(value="Выбери фото в списке или в сетке миниатюр.")
         self.detail_usage_var = tk.StringVar(value="")
 
@@ -273,7 +276,7 @@ class NewsBuilderApp:
         help_frame = ttk.LabelFrame(tools_panel, text="Синтаксис", padding=10)
         help_frame.grid(row=3, column=0, sticky="nsew", pady=(10, 0))
         help_frame.columnconfigure(0, weight=1)
-        tools_panel.rowconfigure(3, weight=1)
+        tools_panel.rowconfigure(4, weight=1)
         help_text = (
             "[image:1] - одно фото\n"
             "[images:1,2] - ряд\n"
@@ -282,6 +285,27 @@ class NewsBuilderApp:
             "Выдели фото во вкладке 'Фото' и вставляй маркеры кнопками справа."
         )
         ttk.Label(help_frame, text=help_text, justify="left").grid(row=0, column=0, sticky="nw")
+
+        preview_frame = ttk.LabelFrame(tools_panel, text="Фото", padding=10)
+        preview_frame.grid(row=4, column=0, sticky="nsew", pady=(10, 0))
+        preview_frame.columnconfigure(0, weight=1)
+        self.editor_preview_label = tk.Label(
+            preview_frame,
+            text="Нет выбранного фото",
+            relief="solid",
+            borderwidth=1,
+            width=24,
+            height=7,
+            bg="#fbfaf7",
+            justify="center",
+        )
+        self.editor_preview_label.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        ttk.Label(
+            preview_frame,
+            textvariable=self.editor_preview_caption_var,
+            wraplength=250,
+            justify="left",
+        ).grid(row=1, column=0, sticky="ew")
 
     def _build_images_tab(self) -> None:
         self.images_tab.columnconfigure(0, weight=1)
@@ -1159,6 +1183,10 @@ class NewsBuilderApp:
             self.detail_usage_var.set("")
             self.detail_preview_label.configure(image="", text="Нет выбранного фото")
             self.detail_photo_ref = None
+            if self.editor_preview_label is not None:
+                self.editor_preview_label.configure(image="", text="Нет выбранного фото")
+                self.editor_preview_photo_ref = None
+            self.editor_preview_caption_var.set("Выбери фото во вкладке 'Фото'.")
             if self.workspace_detail_preview_label is not None:
                 self.workspace_detail_caption_var.set("Выбери фото в правом списке.")
                 self.workspace_detail_usage_var.set("")
@@ -1178,9 +1206,19 @@ class NewsBuilderApp:
             self.detail_preview_label.configure(image="", text=path.name)
             self.detail_photo_ref = None
 
+        editor_photo = self._create_thumbnail_photo(path, (240, 180))
+        if self.editor_preview_label is not None:
+            if editor_photo is not None:
+                self.editor_preview_label.configure(image=editor_photo, text="")
+                self.editor_preview_photo_ref = editor_photo
+            else:
+                self.editor_preview_label.configure(image="", text=path.name)
+                self.editor_preview_photo_ref = None
+
         self.detail_caption_var.set(f"Фото #{index}: {path.name}")
         usage_text = "Статус: уже используется в тексте." if index in self.used_image_indices else "Статус: пока не используется в тексте."
         self.detail_usage_var.set(usage_text)
+        self.editor_preview_caption_var.set(f"Фото #{index}: {path.name}")
         if self.workspace_detail_preview_label is not None:
             workspace_photo = self._create_thumbnail_photo(path, DETAIL_PREVIEW_SIZE)
             if workspace_photo is not None:
