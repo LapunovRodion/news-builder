@@ -128,6 +128,10 @@ class NewsBuilderParsingTests(unittest.TestCase):
             mocked_datetime.now.return_value.strftime.return_value = "20260313-180000"
             self.assertEqual(news_builder.build_news_folder_name("!!!"), "news-20260313-180000")
 
+    def test_next_free_image_indices_returns_first_free_range(self):
+        self.assertEqual(news_builder.next_free_image_indices({1, 2, 4}, total_images=6, count=2), (5, 6))
+        self.assertEqual(news_builder.next_free_image_indices({1, 3}, total_images=4, count=1), (2,))
+
     def test_derive_full_output_path(self):
         output = Path("/tmp/news.html")
         self.assertEqual(news_builder.derive_full_output_path(output), Path("/tmp/news_preview.html"))
